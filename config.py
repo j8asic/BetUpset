@@ -9,7 +9,6 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 try:
     import yaml
@@ -53,6 +52,14 @@ class ScannerConfig:
 
 
 @dataclass
+class ExecutionConfig:
+    dry_run_only: bool = False
+    max_stake_per_trade: float = 50.0
+    max_scan_age_seconds: int = 600
+    max_liquidity_fraction: float = 0.05
+
+
+@dataclass
 class PlatformConfig:
     enabled: bool = False
     # Platform-specific credential fields (populated from YAML)
@@ -78,6 +85,7 @@ class AppConfig:
     risk: RiskConfig = field(default_factory=RiskConfig)
     bankroll: BankrollConfig = field(default_factory=BankrollConfig)
     scanner: ScannerConfig = field(default_factory=ScannerConfig)
+    execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     platforms: dict[str, PlatformConfig] = field(default_factory=dict)
     alerts: AlertsConfig = field(default_factory=AlertsConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
@@ -124,7 +132,7 @@ def load_config(path: str = "config.yaml") -> AppConfig:
         _set_default_platforms(config)
         return config
 
-    with open(config_path) as f:
+    with open(config_path, encoding="utf-8") as f:
         raw = yaml.safe_load(f)
 
     if not raw:
@@ -165,6 +173,16 @@ def load_config(path: str = "config.yaml") -> AppConfig:
         config.scanner = ScannerConfig(
             interval_seconds=sc.get("interval_seconds", 60),
             leagues=sc.get("leagues", config.scanner.leagues),
+        )
+
+    # Execution
+    if "execution" in raw:
+        e = raw["execution"]
+        config.execution = ExecutionConfig(
+            dry_run_only=e.get("dry_run_only", False),
+            max_stake_per_trade=e.get("max_stake_per_trade", 50.0),
+            max_scan_age_seconds=e.get("max_scan_age_seconds", 600),
+            max_liquidity_fraction=e.get("max_liquidity_fraction", 0.05),
         )
 
     # Platforms

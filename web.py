@@ -115,6 +115,124 @@ def _get_platform_clients():
     return clients
 
 
+def _get_execution_config():
+    from config import ExecutionConfig, load_config
+
+    try:
+        return load_config("config.yaml").execution
+    except (OSError, ValueError):
+        return ExecutionConfig()
+
+
+def _execution_status_payload() -> dict:
+    cfg = _get_execution_config()
+    return {
+        "dry_run_only": cfg.dry_run_only,
+        "max_stake_per_trade": cfg.max_stake_per_trade,
+        "max_scan_age_seconds": cfg.max_scan_age_seconds,
+        "max_liquidity_fraction": cfg.max_liquidity_fraction,
+    }
+
+
+def _platform_stake_fractions(bet: dict) -> dict[str, float]:
+    price_a = float(bet.get("price_a", 0.0) or 0.0)
+    price_b = float(bet.get("price_b", 0.0) or 0.0)
+    total_price = price_a + price_b
+    if total_price <= 0:
+        return {}
+
+    fractions = {"polymarket": 0.0, "kalshi": 0.0}
+    for suffix in ("a", "b"):
+        platform = str(bet.get(f"platform_{suffix}", "") or "")
+        price = float(bet.get(f"price_{suffix}", 0.0) or 0.0)
+        if platform in fractions:
+            fractions[platform] += price / total_price
+
+    return {platform: fraction for platform, fraction in fractions.items() if fraction > 0}
+
+
+def _platform_stake_amounts(bet: dict) -> dict[str, float]:
+    stake = float(bet.get("stake", 0.0) or 0.0)
+    return {
+        platform: stake * fraction
+        for platform, fraction in _platform_stake_fractions(bet).items()
+    }
+
+
+def _validate_execution_request(bet: dict) -> None:
+    cfg = _get_execution_config()
+    stake = float(bet.get("stake", 0.0) or 0.0)
+    if stake <= 0:
+        raise HTTPException(400, "Stake must be greater than zero")
+
+    if cfg.dry_run_only:
+        raise HTTPException(409, "Execution blocked: dry_run_only is enabled in config.yaml")
+
+    if cfg.max_stake_per_trade > 0 and stake > cfg.max_stake_per_trade:
+        raise HTTPException(
+            409,
+            f"Execution blocked: stake ${stake:.2f} exceeds max_stake_per_trade ${cfg.max_stake_per_trade:.2f}",
+        )
+
+    scan_time = float(bet.get("scanned_at", 0.0) or 0.0)
+    if scan_time <= 0:
+        scan_time = _scan_time
+    if scan_time <= 0:
+        raise HTTPException(409, "Execution blocked: no scan timestamp is available; refresh opportunities first")
+    if scan_time > time.time() + 5:
+        raise HTTPException(400, "Execution blocked: invalid scan timestamp")
+    if cfg.max_scan_age_seconds > 0:
+        age_seconds = time.time() - scan_time
+        if age_seconds > cfg.max_scan_age_seconds:
+            raise HTTPException(
+                409,
+                (
+                    "Execution blocked: scan data is stale "
+                    f"({age_seconds:.0f}s old, limit {cfg.max_scan_age_seconds}s); refresh opportunities first"
+                ),
+            )
+
+    max_liquidity_fraction = cfg.max_liquidity_fraction
+    if max_liquidity_fraction <= 0:
+        return
+
+    liquidity_by_platform = {
+        "polymarket": float(bet.get("poly_covered_liq", 0.0) or 0.0),
+        "kalshi": float(bet.get("kalshi_covered_liq", 0.0) or 0.0),
+    }
+    for platform, fraction in _platform_stake_fractions(bet).items():
+        covered_liquidity = liquidity_by_platform.get(platform, 0.0)
+        if covered_liquidity <= 0:
+            continue
+        max_stake = covered_liquidity * fraction * max_liquidity_fraction
+        if stake > max_stake:
+            raise HTTPException(
+                409,
+                (
+                    f"Execution blocked: {platform} covered liquidity only supports about ${max_stake:.2f} "
+                    f"at the configured {max_liquidity_fraction:.0%} depth cap"
+                ),
+            )
+
+
+def _validate_live_balances(bet: dict, live_balances: dict) -> None:
+    for platform, required_amount in _platform_stake_amounts(bet).items():
+        live_balance = live_balances.get(platform)
+        if live_balance is None:
+            raise HTTPException(
+                409,
+                f"Execution blocked: could not verify live {platform} balance before placing the order",
+            )
+        if required_amount > float(live_balance):
+            raise HTTPException(
+                409,
+                (
+                    f"Execution blocked: {platform} needs ${required_amount:.2f} but live balance is only "
+                    f"${float(live_balance):.2f}"
+                ),
+            )
+
+
 # ---------------------------------------------------------------------------
 # API: Auth
 # ---------------------------------------------------------------------------
@@ -166,17 +284,35 @@ async def scan_get(request: Request, demo: Optional[bool] = None):
     use_demo = demo if demo is not None else DEMO_MODE
 
     if _scan_cache and (time.time() - _scan_time < SCAN_CACHE_TTL):
-        return {"matches": _scan_cache, "total_matches": _scan_total, "scanned_at": _scan_time, "cached": True}
+        return {
+            "matches": _scan_cache,
+            "total_matches": _scan_total,
+            "scanned_at": _scan_time,
+            "cached": True,
+            "execution": _execution_status_payload(),
+        }
 
     async with _scan_lock:
         if _scan_cache and (time.time() - _scan_time < SCAN_CACHE_TTL):
-            return {"matches": _scan_cache, "total_matches": _scan_total, "scanned_at": _scan_time, "cached": True}
+            return {
+                "matches": _scan_cache,
+                "total_matches": _scan_total,
+                "scanned_at": _scan_time,
+                "cached": True,
+                "execution": _execution_status_payload(),
+            }
 
         rows, total = await asyncio.to_thread(run_scan, demo=use_demo)
         _scan_cache = _match_rows_to_dicts(rows)
         _scan_total = total
         _scan_time = time.time()
-        return {"matches": _scan_cache, "total_matches": _scan_total, "scanned_at": _scan_time, "cached": False}
+        return {
+            "matches": _scan_cache,
+            "total_matches": _scan_total,
+            "scanned_at": _scan_time,
+            "cached": False,
+            "execution": _execution_status_payload(),
+        }
 
 
 @app.post("/api/scan")
@@ -191,7 +327,13 @@ async def scan_post(request: Request, demo: Optional[bool] = None):
         _scan_cache = _match_rows_to_dicts(rows)
         _scan_total = total
         _scan_time = time.time()
-        return {"matches": _scan_cache, "total_matches": _scan_total, "scanned_at": _scan_time, "cached": False}
+        return {
+            "matches": _scan_cache,
+            "total_matches": _scan_total,
+            "scanned_at": _scan_time,
+            "cached": False,
+            "execution": _execution_status_payload(),
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +369,9 @@ class PlaceBetRequest(BaseModel):
     platform_b: str = ""
     price_a: float = 0.0
     price_b: float = 0.0
+    poly_covered_liq: float = 0.0
+    kalshi_covered_liq: float = 0.0
+    scanned_at: float = 0.0
 
 
 @app.get("/api/bets")
@@ -352,8 +497,11 @@ async def bets_execute(request: Request, req: PlaceBetRequest):
     the frontend decides whether to save based on the result."""
     _require_auth(request)
     data = req.model_dump()
+    _validate_execution_request(data)
+    live_balances = await asyncio.to_thread(_fetch_all_balances)
+    _validate_live_balances(data, live_balances)
     execution = await asyncio.to_thread(_place_orders, data)
-    return {"execution": execution}
+    return {"execution": execution, "balances": live_balances}
 
 
 @app.post("/api/bets")

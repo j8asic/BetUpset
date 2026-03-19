@@ -45,6 +45,11 @@
 
   .header-right { display: flex; gap: 8px; align-items: center; }
   #scan-status { color: var(--text-muted); font-size: 12px; }
+  #execution-mode {
+    color: var(--yellow);
+    font-size: 11px;
+    letter-spacing: 0.5px;
+  }
 
   /* ── Buttons ─────────────────────────────────────────────────── */
   .btn {
@@ -286,6 +291,7 @@
     <div class="panel-header">
       <span>OPPORTUNITIES <span id="match-count" style="font-weight:400;color:var(--text-muted);font-size:12px;"></span></span>
       <span style="display:flex;gap:8px;align-items:center;">
+        <span id="execution-mode"></span>
         <span id="scan-status" style="color:var(--text-muted);font-size:11px;"></span>
         <button class="btn btn-sm" id="auth-action" style="display:none;" onclick="logout()">Logout</button>
         <button class="btn btn-sm" onclick="doScan(true)">Rescan</button>
@@ -463,6 +469,8 @@ let betSortCol   = 'placed_at', betSortDir = -1;
 let pendingMatchIdx = null;  // index of match being confirmed
 let authState = { enabled: false, authenticated: true };
 let refreshTimersStarted = false;
+let executionPolicy = null;
+let lastScannedAt = 0;
 
 // ═══════════════════════════════════════════════════════════════
 // API helpers
@@ -477,8 +485,31 @@ async function api(method, path, body) {
     showLogin('Enter the app password to continue.');
     throw new Error('Authentication required');
   }
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    let message = `${res.status} ${res.statusText}`;
+    try {
+      const data = await res.json();
+      if (data && typeof data.detail === 'string' && data.detail) message = data.detail;
+    } catch (_) {}
+    throw new Error(message);
+  }
   return res.json();
+}
+
+function renderExecutionMode() {
+  const el = document.getElementById('execution-mode');
+  if (!el) return;
+  if (!executionPolicy) {
+    el.textContent = '';
+    el.title = '';
+    return;
+  }
+  el.textContent = executionPolicy.dry_run_only ? 'DRY RUN' : '';
+  el.title = [
+    `max stake $${Number(executionPolicy.max_stake_per_trade || 0).toFixed(0)}`,
+    `scan age ${executionPolicy.max_scan_age_seconds || 0}s`,
+    `liquidity ${(Number(executionPolicy.max_liquidity_fraction || 0) * 100).toFixed(0)}%`,
+  ].join(' · ');
 }
 
 async function refreshAuthStatus() {
@@ -575,6 +606,9 @@ async function doScan(force = false) {
   try {
     const data = force ? await api('POST', '/api/scan') : await api('GET', '/api/scan');
     matches = data.matches || [];
+    lastScannedAt = data.scanned_at || 0;
+    executionPolicy = data.execution || null;
+    renderExecutionMode();
     const t = new Date(data.scanned_at * 1000);
     status.textContent = (data.cached ? 'cached · ' : '') + t.toLocaleTimeString();
     const total = data.total_matches || 0;
@@ -621,6 +655,7 @@ async function doResolve() {
   status.textContent = 'Checking results…';
   try {
     const data = await api('POST', '/api/resolve');
+    await fetchBalances();
     status.textContent = data.resolved > 0 ? `Resolved ${data.resolved} bet(s)!` : prev;
     if (data.resolved > 0) fetchBets();
   } catch (e) { status.textContent = prev; }
@@ -657,6 +692,7 @@ function openBetModal(idx) {
   const kalshiSF = m.kalshi_stake_fraction || 0;
   const polyBal  = balances.polymarket;
   const kalshiBal = balances.kalshi;
+  const liqFraction = executionPolicy?.max_liquidity_fraction ?? 0.05;
 
   let maxFromBal = 100000;  // unconstrained if balances unknown
   if (polySF > 0 && polyBal != null)   maxFromBal = Math.min(maxFromBal, Math.floor(polyBal   / polySF));
@@ -666,10 +702,13 @@ function openBetModal(idx) {
   const polyCovLiq   = m.poly_covered_liq   || 0;
   const kalshiCovLiq = m.kalshi_covered_liq || 0;
   let maxFromLiq = 100000;
-  if (polySF > 0   && polyCovLiq > 0)   maxFromLiq = Math.min(maxFromLiq, Math.floor(polyCovLiq   * polySF   * 0.05));
-  if (kalshiSF > 0 && kalshiCovLiq > 0) maxFromLiq = Math.min(maxFromLiq, Math.floor(kalshiCovLiq * kalshiSF * 0.05));
+  if (polySF > 0   && polyCovLiq > 0)   maxFromLiq = Math.min(maxFromLiq, Math.floor(polyCovLiq   * polySF   * liqFraction));
+  if (kalshiSF > 0 && kalshiCovLiq > 0) maxFromLiq = Math.min(maxFromLiq, Math.floor(kalshiCovLiq * kalshiSF * liqFraction));
 
   let sliderMax = Math.min(maxFromBal, maxFromLiq, 10000);
+  if (executionPolicy?.max_stake_per_trade > 0) {
+    sliderMax = Math.min(sliderMax, Math.floor(executionPolicy.max_stake_per_trade));
+  }
   sliderMax = Math.max(sliderMax, 5);  // floor at $5
 
   // Default = Kelly-lite: balance * roi * win_prob * 2
@@ -692,6 +731,7 @@ function onSliderChange(val) {
   const m = pendingMatchIdx != null ? matches[pendingMatchIdx] : null;
   if (!m) return;
   val = Number(val);
+  const liqFraction = executionPolicy?.max_liquidity_fraction ?? 0.05;
   document.getElementById('slider-display').textContent = `$${val}`;
 
   // Scale profit/risk proportionally from the base $100 stake
@@ -742,7 +782,7 @@ function onSliderChange(val) {
   const limLabel = (bal, liq, sf) => {
     const parts = [];
     if (bal   != null && sf > 0) parts.push(`bal: $${bal.toFixed(0)}`);
-    if (liq   > 0    && sf > 0) parts.push(`liq: $${(liq * sf * 0.05).toFixed(0)} (5%)`);
+    if (liq   > 0    && sf > 0) parts.push(`liq: $${(liq * sf * liqFraction).toFixed(0)} (${(liqFraction * 100).toFixed(0)}%)`);
     return parts.join('  ·  ');
   };
   document.getElementById('alloc-poly-limit').textContent =
@@ -770,6 +810,7 @@ async function confirmBet() {
     profit_if_win:  +(m.profit_if_win  * scale).toFixed(2),
     loss_if_reject: +(m.loss_if_reject * scale).toFixed(2),
     stake,
+    scanned_at: lastScannedAt,
   };
 
   // Step 1: Try to place orders on both platforms
@@ -777,9 +818,9 @@ async function confirmBet() {
   try {
     const res = await api('POST', '/api/bets/execute', betData);
     execution = res.execution || {};
+    await fetchBalances();
   } catch (e) {
-    // Network/server error — ask if they want simulation only
-    if (!confirm(`Could not reach exchange APIs:\n${e.message}\n\nSave as simulation bet anyway?`)) return;
+    if (!confirm(`Execution not completed:\n${e.message}\n\nSave as simulation bet anyway?`)) return;
     await saveBet(betData);
     return;
   }

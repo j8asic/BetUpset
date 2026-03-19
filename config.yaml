@@ -29,6 +29,13 @@ scanner:
     - bundesliga
     - ligue-1
 
+# Execution safeguards for the web flow
+execution:
+  dry_run_only: false            # true = block real order placement, keep simulation/tracking only
+  max_stake_per_trade: 50        # Max total USD stake allowed per execution attempt
+  max_scan_age_seconds: 600      # Reject execution if the scan snapshot is older than this
+  max_liquidity_fraction: 0.05   # Allow at most 5% of covered liquidity per platform
+
 # Platform credentials (use environment variables in production)
 platforms:
   polymarket:

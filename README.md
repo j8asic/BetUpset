@@ -39,6 +39,7 @@ The web app exposes:
 - `GET /` for the frontend
 - `GET /api/scan` and `POST /api/scan` for scan results
 - `GET /api/bets` and `POST /api/bets` for tracked bets
+- `POST /api/bets/execute` for guarded live execution attempts
 - `GET /api/balances` for platform balances
 - `POST /api/resolve` for bet auto-resolution
 
@@ -102,6 +103,18 @@ APP_SESSION_SECRET=change-me-if-you-enable-password-auth
 ```
 
 If `APP_PASSWORD` is set, the web dashboard requires that password before it will load scans, bets, balances, or resolution actions. The login state is stored in a signed session cookie.
+
+## Execution Safeguards
+
+The web execution path now enforces these checks server-side from `config.yaml`:
+
+- `execution.dry_run_only`: block real order placement and keep the dashboard in simulation mode
+- `execution.max_stake_per_trade`: hard cap on any single execution attempt
+- `execution.max_scan_age_seconds`: reject execution from stale scan snapshots
+- `execution.max_liquidity_fraction`: reject stakes that exceed the allowed fraction of covered liquidity
+- live per-platform balance verification before any order is placed
+
+Those limits backstop the frontend modal, so execution safety does not depend on browser-side controls alone.
 
 ## Testing
 
