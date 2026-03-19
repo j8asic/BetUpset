@@ -97,7 +97,11 @@ KALSHI_API_KEY=your-kalshi-api-key
 KALSHI_PEM_PATH=kalshi_bet.pem
 POLYMARKET_API_KEY=your-polymarket-api-key
 POLYMARKET_PEM_PATH=polymarket.pem
+APP_PASSWORD=
+APP_SESSION_SECRET=change-me-if-you-enable-password-auth
 ```
+
+If `APP_PASSWORD` is set, the web dashboard requires that password before it will load scans, bets, balances, or resolution actions. The login state is stored in a signed session cookie.
 
 ## Testing
 

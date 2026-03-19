@@ -160,8 +160,8 @@
     display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
     font-size: 12px;
   }
-  .pnl-total { font-weight: 700; font-size: 15px; }
-  .pnl-stat  { color: var(--text-muted); }
+  .pnl-total { font-weight: 600; font-size: 12px; color: var(--yellow); }
+  .pnl-stat  { color: var(--text-muted); font-size: 12px; }
 
   tr.already-bet td { opacity: 0.35; }
   tr.already-bet .btn-place { opacity: 0.6; }
@@ -250,6 +250,19 @@
   .alloc-card.over-limit .a-amount { color: var(--red); }
 
   .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+  .modal-copy { color: var(--text-muted); font-size: 12px; margin-bottom: 14px; line-height: 1.5; }
+  .modal-input {
+    width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font: inherit;
+    margin-bottom: 12px;
+  }
+  .modal-input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+  .modal-error { color: var(--red); font-size: 12px; min-height: 18px; margin-bottom: 10px; }
 
   /* ── Mobile ──────────────────────────────────────────────────── */
   @media (max-width: 768px) {
@@ -274,6 +287,7 @@
       <span>OPPORTUNITIES <span id="match-count" style="font-weight:400;color:var(--text-muted);font-size:12px;"></span></span>
       <span style="display:flex;gap:8px;align-items:center;">
         <span id="scan-status" style="color:var(--text-muted);font-size:11px;"></span>
+        <button class="btn btn-sm" id="auth-action" style="display:none;" onclick="logout()">Logout</button>
         <button class="btn btn-sm" onclick="doScan(true)">Rescan</button>
       </span>
     </div>
@@ -292,7 +306,7 @@
           <a class="bal-link" id="bal-poly" href="https://polymarket.com/wallet" target="_blank" rel="noopener">--</a>
         </span>
       </div>
-      <div class="bal-item" style="margin-left:auto;">
+      <div class="bal-item">
         <span class="bal-label" id="bal-total" style="color:var(--text-muted);font-size:11px;"></span>
       </div>
     </div>
@@ -323,7 +337,7 @@
     </div>
 
     <div id="pnl-bar">
-      <span class="pnl-total" id="pnl-total">P&amp;L: $0.00</span>
+      <span class="pnl-total" id="pnl-total">P&amp;L $0.00</span>
       <span class="pnl-stat"  id="pnl-stats"></span>
     </div>
 
@@ -415,6 +429,25 @@
   </div>
 </div>
 
+<!-- ═══════════════ Login Modal ═══════════════ -->
+<div class="modal-overlay" id="login-modal">
+  <div class="modal" onclick="event.stopPropagation()">
+    <h2>Unlock BetUpset</h2>
+    <div class="modal-copy">Enter the dashboard password to load bets, scans, balances, and resolution checks.</div>
+    <div class="modal-error" id="login-error"></div>
+    <input
+      type="password"
+      id="login-password"
+      class="modal-input"
+      placeholder="Password"
+      autocomplete="current-password"
+    >
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="login-submit" onclick="submitLogin()">Unlock</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ═══════════════════════════════════════════════════════════════
 // State
@@ -428,6 +461,8 @@ let matchSortCol = 'score', matchSortDir = -1;
 let betSortCol   = 'placed_at', betSortDir = -1;
 
 let pendingMatchIdx = null;  // index of match being confirmed
+let authState = { enabled: false, authenticated: true };
+let refreshTimersStarted = false;
 
 // ═══════════════════════════════════════════════════════════════
 // API helpers
@@ -436,8 +471,99 @@ async function api(method, path, body) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(path, opts);
+  if (res.status === 401) {
+    authState.authenticated = false;
+    updateAuthUi();
+    showLogin('Enter the app password to continue.');
+    throw new Error('Authentication required');
+  }
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json();
+}
+
+async function refreshAuthStatus() {
+  const res = await fetch('/api/auth/status');
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  authState = await res.json();
+  updateAuthUi();
+  if (authState.enabled && !authState.authenticated) showLogin();
+  else hideLogin();
+  return authState;
+}
+
+function updateAuthUi() {
+  const action = document.getElementById('auth-action');
+  if (!action) return;
+  action.style.display = authState.enabled && authState.authenticated ? '' : 'none';
+}
+
+function showLogin(message = '') {
+  document.getElementById('login-modal').classList.add('open');
+  document.getElementById('login-error').textContent = message;
+  const input = document.getElementById('login-password');
+  input.value = '';
+  input.focus();
+}
+
+function hideLogin() {
+  document.getElementById('login-modal').classList.remove('open');
+  document.getElementById('login-error').textContent = '';
+}
+
+async function submitLogin() {
+  const input = document.getElementById('login-password');
+  const button = document.getElementById('login-submit');
+  const error = document.getElementById('login-error');
+  const password = input.value;
+
+  button.disabled = true;
+  error.textContent = '';
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    if (res.status === 401) {
+      error.textContent = 'Invalid password';
+      input.focus();
+      input.select();
+      return;
+    }
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    await refreshAuthStatus();
+    await loadDashboard();
+  } catch (e) {
+    error.textContent = e.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function logout() {
+  try {
+    await api('POST', '/api/auth/logout');
+  } catch (e) {
+    console.error('logout:', e);
+  }
+  authState.authenticated = false;
+  updateAuthUi();
+  showLogin('Logged out.');
+}
+
+function startRefreshTimers() {
+  if (refreshTimersStarted) return;
+  refreshTimersStarted = true;
+  setInterval(fetchBets, 60000);
+  setInterval(fetchBalances, 120000);
+  setInterval(doResolve, 300000);
+}
+
+async function loadDashboard() {
+  await fetchBets();
+  await fetchBalances();
+  await doScan(false);
+  startRefreshTimers();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -481,7 +607,7 @@ async function fetchBalances() {
     const total = (data.kalshi || 0) + (data.polymarket || 0);
     const totalEl = document.getElementById('bal-total');
     if (data.kalshi != null || data.polymarket != null) {
-      totalEl.textContent = `Total: $${total.toFixed(2)}`;
+      totalEl.textContent = `Total $${total.toFixed(2)}`;
     }
   } catch (e) {
     document.getElementById('bal-kalshi').textContent  = 'deposit ↗';
@@ -795,10 +921,10 @@ function renderMatches() {
     const label   = cap(m.home_team) + ' vs ' + cap(m.away_team);
     const display = label.length > 28 ? label.slice(0, 26) + '..' : label;
     const polyL   = m.polymarket_url
-      ? `<a class="link-btn" href="${m.polymarket_url}" target="_blank" rel="noopener">PM</a>`
+      ? `<a class="link-btn" href="${m.polymarket_url}" target="_blank" rel="noopener">P</a>`
       : '';
     const kalL    = m.kalshi_url
-      ? `<a class="link-btn" href="${m.kalshi_url}" target="_blank" rel="noopener">KA</a>`
+      ? `<a class="link-btn" href="${m.kalshi_url}" target="_blank" rel="noopener">K</a>`
       : '';
     const dimmed  = isAlreadyBet(m, placed) ? ' class="already-bet"' : '';
 
@@ -836,10 +962,10 @@ function renderBets() {
     const label   = cap(b.home_team) + ' vs ' + cap(b.away_team);
     const display = label.length > 24 ? label.slice(0, 22) + '..' : label;
     const polyL   = b.polymarket_url
-      ? `<a class="link-btn" href="${b.polymarket_url}" target="_blank" rel="noopener">PM</a>`
+      ? `<a class="link-btn" href="${b.polymarket_url}" target="_blank" rel="noopener">P</a>`
       : '';
     const kalL    = b.kalshi_url
-      ? `<a class="link-btn" href="${b.kalshi_url}" target="_blank" rel="noopener">KA</a>`
+      ? `<a class="link-btn" href="${b.kalshi_url}" target="_blank" rel="noopener">K</a>`
       : '';
 
     let resCls, resCell, rowBg = '';
@@ -880,7 +1006,7 @@ function renderPnl() {
   const el   = document.getElementById('pnl-total');
   const sign = pnl.total >= 0 ? '+' : '';
   el.style.color = pnl.total >= 0 ? 'var(--green)' : 'var(--red)';
-  el.textContent = `P&L: ${sign}$${pnl.total.toFixed(2)}`;
+  el.textContent = `P&L ${sign}$${pnl.total.toFixed(2)}`;
   const fmt = v => v > 0 ? ` $${v.toFixed(0)}` : '';
   document.getElementById('pnl-stats').innerHTML =
     `<span style="color:var(--green)">${pnl.passes} PASS${fmt(pnl.pass_amount)}</span> · ` +
@@ -891,13 +1017,19 @@ function renderPnl() {
 // ═══════════════════════════════════════════════════════════════
 // Init
 // ═══════════════════════════════════════════════════════════════
-doScan(false);
-fetchBets();
-fetchBalances();
+document.getElementById('login-password').addEventListener('keydown', event => {
+  if (event.key === 'Enter') submitLogin();
+});
 
-setInterval(fetchBets,     60000);
-setInterval(fetchBalances, 120000);
-setInterval(doResolve,     300000);
+(async () => {
+  try {
+    const auth = await refreshAuthStatus();
+    if (auth.enabled && !auth.authenticated) return;
+    await loadDashboard();
+  } catch (e) {
+    document.getElementById('scan-status').textContent = 'Init error: ' + e.message;
+  }
+})();
 </script>
 </body>
 </html>

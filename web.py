@@ -12,7 +12,10 @@ Usage:
 """
 
 import asyncio
+import hashlib
 import json
+import os
+import secrets
 import sys
 import time
 from dataclasses import asdict
@@ -23,9 +26,10 @@ from dotenv import load_dotenv
 load_dotenv()
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from starlette.middleware.sessions import SessionMiddleware
 
 from scan_service import MatchRow, run_scan
 
@@ -36,12 +40,25 @@ from scan_service import MatchRow, run_scan
 BASE_DIR = Path(__file__).parent
 DEMO_MODE = "--demo" in sys.argv
 BETS_CSV = BASE_DIR / "bets.csv"
+APP_PASSWORD = os.getenv("APP_PASSWORD", "").strip()
+APP_SESSION_SECRET = os.getenv("APP_SESSION_SECRET") or (
+    hashlib.sha256(APP_PASSWORD.encode("utf-8")).hexdigest()
+    if APP_PASSWORD
+    else "betupset-dev-session-secret"
+)
+SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
 
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
 
 app = FastAPI(title="BetUpset")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=APP_SESSION_SECRET,
+    same_site="lax",
+    max_age=SESSION_COOKIE_MAX_AGE,
+)
 
 # ---------------------------------------------------------------------------
 # State: scan cache + tracker
@@ -65,6 +82,19 @@ def get_tracker():
     return _tracker
 
 
+def _is_auth_enabled() -> bool:
+    return bool(APP_PASSWORD)
+
+
+def _is_authenticated(request: Request) -> bool:
+    return not _is_auth_enabled() or bool(request.session.get("authenticated"))
+
+
+def _require_auth(request: Request) -> None:
+    if not _is_authenticated(request):
+        raise HTTPException(401, "Authentication required")
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -86,12 +116,52 @@ def _get_platform_clients():
 
 
 # ---------------------------------------------------------------------------
+# API: Auth
+# ---------------------------------------------------------------------------
+
+class LoginRequest(BaseModel):
+    password: str = ""
+
+
+@app.get("/api/auth/status")
+async def auth_status(request: Request):
+    enabled = _is_auth_enabled()
+    return {
+        "enabled": enabled,
+        "authenticated": _is_authenticated(request),
+    }
+
+
+@app.post("/api/auth/login")
+async def auth_login(request: Request, req: LoginRequest):
+    if not _is_auth_enabled():
+        return {"enabled": False, "authenticated": True}
+
+    if not secrets.compare_digest(req.password, APP_PASSWORD):
+        request.session.clear()
+        raise HTTPException(401, "Invalid password")
+
+    request.session["authenticated"] = True
+    return {"enabled": True, "authenticated": True}
+
+
+@app.post("/api/auth/logout")
+async def auth_logout(request: Request):
+    request.session.clear()
+    return {
+        "enabled": _is_auth_enabled(),
+        "authenticated": False,
+    }
+
+
+# ---------------------------------------------------------------------------
 # API: Scan
 # ---------------------------------------------------------------------------
 
 @app.get("/api/scan")
-async def scan_get(demo: Optional[bool] = None):
+async def scan_get(request: Request, demo: Optional[bool] = None):
     """Return cached scan results, or run initial scan."""
+    _require_auth(request)
     global _scan_cache, _scan_total, _scan_time
     use_demo = demo if demo is not None else DEMO_MODE
 
@@ -110,8 +180,9 @@ async def scan_get(demo: Optional[bool] = None):
 
 
 @app.post("/api/scan")
-async def scan_post(demo: Optional[bool] = None):
+async def scan_post(request: Request, demo: Optional[bool] = None):
     """Force a fresh rescan."""
+    _require_auth(request)
     global _scan_cache, _scan_total, _scan_time
     use_demo = demo if demo is not None else DEMO_MODE
 
@@ -159,7 +230,8 @@ class PlaceBetRequest(BaseModel):
 
 
 @app.get("/api/bets")
-async def bets_list():
+async def bets_list(request: Request):
+    _require_auth(request)
     tracker = get_tracker()
     bets = tracker.get_all_bets()
     pnl = tracker.get_bets_pnl()
@@ -275,17 +347,19 @@ class SaveBetRequest(BaseModel):
 
 
 @app.post("/api/bets/execute")
-async def bets_execute(req: PlaceBetRequest):
+async def bets_execute(request: Request, req: PlaceBetRequest):
     """Try to place orders on both platforms. Does NOT save the bet yet —
     the frontend decides whether to save based on the result."""
+    _require_auth(request)
     data = req.model_dump()
     execution = await asyncio.to_thread(_place_orders, data)
     return {"execution": execution}
 
 
 @app.post("/api/bets")
-async def bets_create(req: PlaceBetRequest):
+async def bets_create(request: Request, req: PlaceBetRequest):
     """Save a bet to the tracker (called after user confirms)."""
+    _require_auth(request)
     tracker = get_tracker()
     data = req.model_dump()
     data["result"] = "PENDING"
@@ -295,7 +369,8 @@ async def bets_create(req: PlaceBetRequest):
 
 
 @app.patch("/api/bets/{bet_id}/result")
-async def bets_toggle_result(bet_id: int):
+async def bets_toggle_result(request: Request, bet_id: int):
+    _require_auth(request)
     tracker = get_tracker()
     bets = tracker.get_all_bets()
     bet = next((b for b in bets if b["id"] == bet_id), None)
@@ -309,7 +384,8 @@ async def bets_toggle_result(bet_id: int):
 
 
 @app.delete("/api/bets/{bet_id}")
-async def bets_delete(bet_id: int):
+async def bets_delete(request: Request, bet_id: int):
+    _require_auth(request)
     tracker = get_tracker()
     tracker.delete_bet(bet_id)
     return {"ok": True}
@@ -336,8 +412,9 @@ def _fetch_all_balances() -> dict:
 
 
 @app.get("/api/balances")
-async def balances():
+async def balances(request: Request):
     """Fetch platform account balances."""
+    _require_auth(request)
     return await asyncio.to_thread(_fetch_all_balances)
 
 
@@ -346,8 +423,9 @@ async def balances():
 # ---------------------------------------------------------------------------
 
 @app.post("/api/resolve")
-async def resolve_pending():
+async def resolve_pending(request: Request):
     """Check platform APIs for settled markets and update PENDING bets."""
+    _require_auth(request)
     tracker = get_tracker()
     pending = tracker.get_pending_bets()
     if not pending:
