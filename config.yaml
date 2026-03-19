@@ -1,0 +1,58 @@
+# BetUpset Prediction Market Arbitrage Bot Configuration
+
+# Strategy parameters
+strategy:
+  min_gap: 0.03               # Minimum gap (3 cents) to enter a trade
+  max_reject_prob: 0.15        # Never reject an outcome above 15% implied prob
+  safety_factor: 0.60          # Only enter if P_reject < Gap * safety_factor
+  bet_fraction: 0.02           # Risk 2% of current bankroll per trade
+
+# Risk limits
+risk:
+  max_exposure_per_match: 500       # Max USD on any single match
+  max_total_exposure: 3000          # Max USD across all open trades
+  stop_loss_pct: 0.20               # Pause if bankroll drops 20% from starting
+  max_matchday_exposure_pct: 0.15   # Max 15% of bankroll on any single matchday
+
+# Bankroll
+bankroll:
+  starting: 10000
+
+# Scan settings
+scanner:
+  interval_seconds: 60
+  leagues:
+    - premier-league
+    - la-liga
+    - champions-league
+    - serie-a
+    - bundesliga
+    - ligue-1
+
+# Platform credentials (use environment variables in production)
+platforms:
+  polymarket:
+    enabled: true
+    wallet_address: "${POLY_WALLET}"
+    private_key: "${POLY_PRIVATE_KEY}"
+    private_key_path: "${POLYMARKET_PEM_PATH}"
+  kalshi:
+    enabled: true
+    api_key_id: "${KALSHI_API_KEY}"
+    private_key_path: "${KALSHI_PEM_PATH}"
+  # Legacy platforms (disabled by default)
+  azuro:
+    enabled: false
+  oddsapi:
+    enabled: false
+
+# Alerts
+alerts:
+  console: true
+  telegram_bot_token: "${TELEGRAM_TOKEN}"
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+
+# Output
+output:
+  csv_path: "opportunities.csv"
+  db_path: "trades.db"

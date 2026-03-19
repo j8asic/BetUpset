@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BetUpset</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --panel: #16213e;
+    --header: #0f3460;
+    --border: #2a2a4a;
+    --text: #e0e0e0;
+    --text-muted: #888;
+    --green: #a8e6cf;
+    --red: #ff8b94;
+    --blue: #a8d8ea;
+    --yellow: #ffd3b6;
+    --accent: #7c83fd;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+    min-height: 100vh;
+  }
+
+  /* ── Header ─────────────────────────────────────────────────── */
+  header {
+    background: var(--header);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  header h1 { font-size: 18px; font-weight: 600; color: var(--blue); letter-spacing: 1px; }
+
+  .header-right { display: flex; gap: 8px; align-items: center; }
+  #scan-status { color: var(--text-muted); font-size: 12px; }
+
+  /* ── Buttons ─────────────────────────────────────────────────── */
+  .btn {
+    background: var(--border);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: inherit;
+    transition: background 0.15s;
+  }
+  .btn:hover { background: var(--accent); color: #fff; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-sm { padding: 3px 8px; font-size: 11px; }
+  .btn-place { border-color: var(--green); color: var(--green); }
+  .btn-place:hover { background: var(--green); color: var(--bg); }
+  .btn-del { border-color: var(--red); color: var(--red); }
+  .btn-del:hover { background: var(--red); color: var(--bg); }
+  .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn-primary:hover { background: #9098ff; }
+
+  /* ── Two-panel layout ────────────────────────────────────────── */
+  .panels {
+    display: flex;
+    height: 100vh;
+  }
+
+  .panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .panel:first-child { border-right: 1px solid var(--border); }
+
+  .panel-header {
+    background: var(--panel);
+    padding: 10px 16px;
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .panel:first-child .panel-header { color: var(--green); }
+  .panel:last-child  .panel-header { color: var(--blue); }
+
+  /* ── Balance bar (left panel) ────────────────────────────────── */
+  #balances-bar {
+    background: var(--panel);
+    padding: 7px 16px;
+    font-size: 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 24px;
+    align-items: center;
+  }
+  .bal-item { display: flex; gap: 6px; align-items: center; }
+  .bal-label { color: var(--text-muted); }
+  .bal-value { color: var(--yellow); font-weight: 600; }
+  .bal-link {
+    color: inherit; text-decoration: none;
+    border-bottom: 1px dashed var(--text-muted);
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .bal-link:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* ── Table wrapper ───────────────────────────────────────────── */
+  .table-wrap { flex: 1; overflow: auto; }
+
+  table { width: 100%; border-collapse: collapse; white-space: nowrap; }
+
+  th, td { padding: 7px 10px; text-align: right; border-bottom: 1px solid var(--border); }
+
+  th {
+    background: var(--panel);
+    position: sticky; top: 0; z-index: 1;
+    cursor: pointer; user-select: none;
+    font-weight: 500; color: var(--text-muted);
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  th:hover { color: var(--text); }
+  th .sa { margin-left: 3px; font-size: 10px; }
+
+  td:nth-child(1), th:nth-child(1),
+  td:nth-child(2), th:nth-child(2) { text-align: left; }
+
+  tr:hover td { background: rgba(255,255,255,0.03); }
+
+  .rejected { color: var(--red); }
+  .pass  { color: var(--green); }
+  .fail  { color: var(--red); }
+  .pending { color: var(--text-muted); }
+
+  .link-btn {
+    display: inline-block; padding: 2px 6px; border-radius: 3px;
+    font-size: 10px; text-decoration: none; color: var(--text-muted);
+    border: 1px solid var(--border); margin: 0 1px; transition: all 0.15s;
+  }
+  .link-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .link-btn.off { opacity: 0.3; pointer-events: none; }
+
+  /* ── P&L bar (right panel bottom) ───────────────────────────── */
+  #pnl-bar {
+    background: var(--panel);
+    padding: 7px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+    font-size: 12px;
+  }
+  .pnl-total { font-weight: 700; font-size: 15px; }
+  .pnl-stat  { color: var(--text-muted); }
+
+  tr.already-bet td { opacity: 0.35; }
+  tr.already-bet .btn-place { opacity: 0.6; }
+
+  .empty { padding: 40px; text-align: center; color: var(--text-muted); font-size: 13px; }
+
+  /* ── Modal ───────────────────────────────────────────────────── */
+  .modal-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.65);
+    z-index: 100;
+    align-items: center; justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+
+  .modal {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px 32px;
+    width: min(440px, 94vw);
+    box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+  }
+
+  .modal h2 {
+    font-size: 15px; font-weight: 600; color: var(--blue);
+    margin-bottom: 20px; letter-spacing: 0.5px;
+  }
+
+  .modal-info {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 10px; margin-bottom: 20px;
+  }
+
+  .modal-stat {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px;
+  }
+  .modal-stat .s-label { color: var(--text-muted); font-size: 11px; margin-bottom: 3px; }
+  .modal-stat .s-value { font-weight: 600; font-size: 14px; }
+
+  .modal-slider-row { margin-bottom: 22px; }
+  .slider-header {
+    display: flex; justify-content: space-between;
+    margin-bottom: 10px; font-size: 12px; color: var(--text-muted);
+  }
+  .slider-header span:last-child { color: var(--yellow); font-weight: 600; font-size: 14px; }
+
+  input[type=range] {
+    width: 100%; accent-color: var(--accent);
+    height: 6px; cursor: pointer;
+  }
+  .slider-limits {
+    display: flex; justify-content: space-between;
+    font-size: 11px; color: var(--text-muted); margin-top: 6px;
+  }
+
+  .modal-projected {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px;
+    margin-bottom: 14px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .proj-label { color: var(--text-muted); font-size: 12px; }
+  .proj-win  { color: var(--green); font-weight: 700; font-size: 15px; }
+  .proj-risk { color: var(--red);   font-weight: 600; font-size: 12px; }
+
+  /* Platform allocation breakdown */
+  .platform-alloc {
+    margin-bottom: 20px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  }
+  .alloc-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 14px;
+  }
+  .alloc-card .a-platform { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .alloc-card .a-outcome  { font-size: 12px; color: var(--text); margin-bottom: 2px; }
+  .alloc-card .a-amount   { font-size: 15px; font-weight: 700; color: var(--yellow); }
+  .alloc-card .a-limit    { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+  .alloc-card.over-limit  { border-color: var(--red); }
+  .alloc-card.over-limit .a-amount { color: var(--red); }
+
+  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+  /* ── Mobile ──────────────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    .panels { flex-direction: column; height: auto; min-height: 100vh; }
+    .panel { min-height: 40vh; }
+    .panel:first-child { border-right: none; border-bottom: 1px solid var(--border); }
+    body { font-size: 12px; }
+    th, td { padding: 5px 6px; }
+    .modal-info { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+
+<!-- ═══════════════ Panels ═══════════════ -->
+<div class="panels">
+
+  <!-- Left: Opportunities -->
+  <div class="panel">
+    <div class="panel-header">
+      <span>OPPORTUNITIES <span id="match-count" style="font-weight:400;color:var(--text-muted);font-size:12px;"></span></span>
+      <span style="display:flex;gap:8px;align-items:center;">
+        <span id="scan-status" style="color:var(--text-muted);font-size:11px;"></span>
+        <button class="btn btn-sm" onclick="doScan(true)">Rescan</button>
+      </span>
+    </div>
+
+    <!-- Balances here — relevant when deciding to place new bets -->
+    <div id="balances-bar">
+      <div class="bal-item">
+        <span class="bal-label">Kalshi</span>
+        <span class="bal-value">
+          <a class="bal-link" id="bal-kalshi" href="https://kalshi.com/account/deposit" target="_blank" rel="noopener">--</a>
+        </span>
+      </div>
+      <div class="bal-item">
+        <span class="bal-label">Polymarket</span>
+        <span class="bal-value">
+          <a class="bal-link" id="bal-poly" href="https://polymarket.com/wallet" target="_blank" rel="noopener">--</a>
+        </span>
+      </div>
+      <div class="bal-item" style="margin-left:auto;">
+        <span class="bal-label" id="bal-total" style="color:var(--text-muted);font-size:11px;"></span>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table id="matches-table">
+        <thead><tr>
+          <th data-col="date"      onclick="sortMatches('date')">Date <span class="sa"></span></th>
+          <th data-col="match"     onclick="sortMatches('match')">Match <span class="sa"></span></th>
+          <th data-col="best_home" onclick="sortMatches('best_home')">1 <span class="sa"></span></th>
+          <th data-col="best_draw" onclick="sortMatches('best_draw')">X <span class="sa"></span></th>
+          <th data-col="best_away" onclick="sortMatches('best_away')">2 <span class="sa"></span></th>
+          <th data-col="roi"       onclick="sortMatches('roi')">ROI% <span class="sa"></span></th>
+          <th data-col="score"     onclick="sortMatches('score')">Score <span class="sa"></span></th>
+          <th></th>
+        </tr></thead>
+        <tbody id="matches-body"></tbody>
+      </table>
+      <div id="matches-empty" class="empty" style="display:none;">No opportunities found. Try rescanning.</div>
+    </div>
+  </div>
+
+  <!-- Right: Bets -->
+  <div class="panel">
+    <div class="panel-header">
+      <span>PLACED BETS <span id="bet-count" style="font-weight:400;color:var(--text-muted);font-size:12px;"></span></span>
+      <button class="btn btn-sm" onclick="doResolve()">Check Results</button>
+    </div>
+
+    <div id="pnl-bar">
+      <span class="pnl-total" id="pnl-total">P&amp;L: $0.00</span>
+      <span class="pnl-stat"  id="pnl-stats"></span>
+    </div>
+
+    <div class="table-wrap">
+      <table id="bets-table">
+        <thead><tr>
+          <th data-col="date"      onclick="sortBets('date')">Date <span class="sa"></span></th>
+          <th data-col="match"     onclick="sortBets('match')">Match <span class="sa"></span></th>
+          <th data-col="best_home" onclick="sortBets('best_home')">1 <span class="sa"></span></th>
+          <th data-col="best_draw" onclick="sortBets('best_draw')">X <span class="sa"></span></th>
+          <th data-col="best_away" onclick="sortBets('best_away')">2 <span class="sa"></span></th>
+          <th data-col="roi"       onclick="sortBets('roi')">ROI% <span class="sa"></span></th>
+          <th data-col="stake"     onclick="sortBets('stake')">Stake <span class="sa"></span></th>
+          <th data-col="result"    onclick="sortBets('result')">Result <span class="sa"></span></th>
+          <th></th>
+        </tr></thead>
+        <tbody id="bets-body"></tbody>
+      </table>
+      <div id="bets-empty" class="empty" style="display:none;">No bets placed yet. Select a match and click Bet.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ Bet Modal ═══════════════ -->
+<div class="modal-overlay" id="bet-modal" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <h2 id="modal-title">Place Bet</h2>
+
+    <div class="modal-info">
+      <div class="modal-stat">
+        <div class="s-label">Polymarket Volume</div>
+        <div class="s-value" id="modal-poly-vol">—</div>
+      </div>
+      <div class="modal-stat">
+        <div class="s-label">Kalshi Volume</div>
+        <div class="s-value" id="modal-kalshi-vol">—</div>
+      </div>
+      <div class="modal-stat">
+        <div class="s-label">Your Polymarket</div>
+        <div class="s-value" id="modal-poly-bal">—</div>
+      </div>
+      <div class="modal-stat">
+        <div class="s-label">Your Kalshi</div>
+        <div class="s-value" id="modal-kalshi-bal">—</div>
+      </div>
+    </div>
+
+    <div class="modal-slider-row">
+      <div class="slider-header">
+        <span>Stake</span>
+        <span id="slider-display">$0</span>
+      </div>
+      <input type="range" id="bet-slider" min="1" max="100" value="10"
+             oninput="onSliderChange(this.value)">
+      <div class="slider-limits">
+        <span>$1</span>
+        <span id="slider-max-label">$100</span>
+      </div>
+    </div>
+
+    <div class="modal-projected">
+      <div>
+        <div class="proj-label">Profit if covered outcome wins</div>
+        <div class="proj-risk" id="modal-risk">Risk: $0 if rejected wins</div>
+      </div>
+      <div class="proj-win" id="modal-profit">+$0</div>
+    </div>
+
+    <!-- Per-platform allocation -->
+    <div class="platform-alloc">
+      <div class="alloc-card" id="alloc-poly">
+        <div class="a-platform">Polymarket</div>
+        <div class="a-outcome" id="alloc-poly-outcome">—</div>
+        <div class="a-amount"  id="alloc-poly-amount">$0</div>
+        <div class="a-limit"   id="alloc-poly-limit"></div>
+      </div>
+      <div class="alloc-card" id="alloc-kalshi">
+        <div class="a-platform">Kalshi</div>
+        <div class="a-outcome" id="alloc-kalshi-outcome">—</div>
+        <div class="a-amount"  id="alloc-kalshi-amount">$0</div>
+        <div class="a-limit"   id="alloc-kalshi-limit"></div>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn" onclick="cancelBet()">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmBet()">Place Bet</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════════════════════
+let matches = [];
+let bets    = [];
+let pnl     = { total: 0, passes: 0, fails: 0, pending: 0 };
+let balances = { kalshi: null, polymarket: null };
+
+let matchSortCol = 'score', matchSortDir = -1;
+let betSortCol   = 'placed_at', betSortDir = -1;
+
+let pendingMatchIdx = null;  // index of match being confirmed
+
+// ═══════════════════════════════════════════════════════════════
+// API helpers
+// ═══════════════════════════════════════════════════════════════
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(path, opts);
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Data fetching
+// ═══════════════════════════════════════════════════════════════
+async function doScan(force = false) {
+  const status = document.getElementById('scan-status');
+  status.textContent = 'Scanning…';
+  try {
+    const data = force ? await api('POST', '/api/scan') : await api('GET', '/api/scan');
+    matches = data.matches || [];
+    const t = new Date(data.scanned_at * 1000);
+    status.textContent = (data.cached ? 'cached · ' : '') + t.toLocaleTimeString();
+    const total = data.total_matches || 0;
+    document.getElementById('match-count').textContent =
+      total ? `${matches.length} of ${total} matches` : matches.length;
+    renderMatches();
+  } catch (e) { status.textContent = 'Scan error: ' + e.message; }
+}
+
+async function fetchBets() {
+  try {
+    const data = await api('GET', '/api/bets');
+    bets = data.bets || [];
+    pnl  = data.pnl  || { total: 0, passes: 0, fails: 0, pending: 0 };
+    document.getElementById('bet-count').textContent = bets.length;
+    renderBets();
+    renderPnl();
+  } catch (e) { console.error('fetchBets:', e); }
+}
+
+async function fetchBalances() {
+  try {
+    const data = await api('GET', '/api/balances');
+    balances = data;
+    const kalEl  = document.getElementById('bal-kalshi');
+    const polyEl = document.getElementById('bal-poly');
+    kalEl.textContent  = data.kalshi      != null ? `$${data.kalshi.toFixed(2)}`      : 'deposit ↗';
+    polyEl.textContent = data.polymarket  != null ? `$${data.polymarket.toFixed(2)}`  : 'deposit ↗';
+
+    const total = (data.kalshi || 0) + (data.polymarket || 0);
+    const totalEl = document.getElementById('bal-total');
+    if (data.kalshi != null || data.polymarket != null) {
+      totalEl.textContent = `Total: $${total.toFixed(2)}`;
+    }
+  } catch (e) {
+    document.getElementById('bal-kalshi').textContent  = 'deposit ↗';
+    document.getElementById('bal-poly').textContent    = 'deposit ↗';
+  }
+}
+
+async function doResolve() {
+  const status = document.getElementById('scan-status');
+  const prev = status.textContent;
+  status.textContent = 'Checking results…';
+  try {
+    const data = await api('POST', '/api/resolve');
+    status.textContent = data.resolved > 0 ? `Resolved ${data.resolved} bet(s)!` : prev;
+    if (data.resolved > 0) fetchBets();
+  } catch (e) { status.textContent = prev; }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Bet modal
+// ═══════════════════════════════════════════════════════════════
+const BASE_STAKE = 100;  // base stake used in compute_match_rows
+
+function openBetModal(idx) {
+  const m = matches[idx];
+  if (!m) return;
+  pendingMatchIdx = idx;
+
+  document.getElementById('modal-title').textContent =
+    `Place Bet — ${cap(m.home_team)} vs ${cap(m.away_team)}`;
+
+  // Volumes (total across all outcomes)
+  const fmtVol = v => v > 0 ? `$${Number(v).toLocaleString('en', {maximumFractionDigits:0})}` : 'N/A';
+  document.getElementById('modal-poly-vol').textContent   = fmtVol(m.poly_volume   || 0);
+  document.getElementById('modal-kalshi-vol').textContent = fmtVol(m.kalshi_volume || 0);
+
+  // Balances
+  const fmtBal = v => v != null ? `$${v.toFixed(2)}` : 'N/A';
+  document.getElementById('modal-poly-bal').textContent   = fmtBal(balances.polymarket);
+  document.getElementById('modal-kalshi-bal').textContent = fmtBal(balances.kalshi);
+
+  // ── Compute correct slider max ──────────────────────────────
+  // Constraint 1: balance per platform
+  // stake * poly_stake_fraction  <= polymarket_balance
+  // stake * kalshi_stake_fraction <= kalshi_balance
+  const polySF   = m.poly_stake_fraction   || 0;
+  const kalshiSF = m.kalshi_stake_fraction || 0;
+  const polyBal  = balances.polymarket;
+  const kalshiBal = balances.kalshi;
+
+  let maxFromBal = 100000;  // unconstrained if balances unknown
+  if (polySF > 0 && polyBal != null)   maxFromBal = Math.min(maxFromBal, Math.floor(polyBal   / polySF));
+  if (kalshiSF > 0 && kalshiBal != null) maxFromBal = Math.min(maxFromBal, Math.floor(kalshiBal / kalshiSF));
+
+  // Constraint 2: liquidity of covered outcomes (cap at 5% of available depth)
+  const polyCovLiq   = m.poly_covered_liq   || 0;
+  const kalshiCovLiq = m.kalshi_covered_liq || 0;
+  let maxFromLiq = 100000;
+  if (polySF > 0   && polyCovLiq > 0)   maxFromLiq = Math.min(maxFromLiq, Math.floor(polyCovLiq   * polySF   * 0.05));
+  if (kalshiSF > 0 && kalshiCovLiq > 0) maxFromLiq = Math.min(maxFromLiq, Math.floor(kalshiCovLiq * kalshiSF * 0.05));
+
+  let sliderMax = Math.min(maxFromBal, maxFromLiq, 10000);
+  sliderMax = Math.max(sliderMax, 5);  // floor at $5
+
+  // Default = Kelly-lite: balance * roi * win_prob * 2
+  const totalBalance = (polyBal || 0) + (kalshiBal || 0);
+  const defaultStake = totalBalance > 0
+    ? Math.min(sliderMax, Math.max(5, Math.round(totalBalance * m.roi * m.win_prob * 2)))
+    : Math.min(sliderMax, Math.max(5, Math.round(sliderMax * 0.1)));
+
+  const slider = document.getElementById('bet-slider');
+  slider.max   = sliderMax;
+  slider.min   = 1;
+  slider.value = Math.min(defaultStake, sliderMax);
+  document.getElementById('slider-max-label').textContent = `$${sliderMax}`;
+
+  onSliderChange(slider.value);
+  document.getElementById('bet-modal').classList.add('open');
+}
+
+function onSliderChange(val) {
+  const m = pendingMatchIdx != null ? matches[pendingMatchIdx] : null;
+  if (!m) return;
+  val = Number(val);
+  document.getElementById('slider-display').textContent = `$${val}`;
+
+  // Scale profit/risk proportionally from the base $100 stake
+  const scale  = val / BASE_STAKE;
+  const profit = m.profit_if_win  * scale;
+  const risk   = m.loss_if_reject * scale;
+  document.getElementById('modal-profit').textContent = `+$${profit.toFixed(2)}`;
+  document.getElementById('modal-risk').textContent   = `Risk: $${risk.toFixed(2)} if ${m.rejected} wins`;
+
+  // ── Per-platform allocation breakdown ──────────────────────
+  const polySF   = m.poly_stake_fraction   || 0;
+  const kalshiSF = m.kalshi_stake_fraction || 0;
+  const polyAmt   = val * polySF;
+  const kalshiAmt = val * kalshiSF;
+
+  // Which outcomes go to each platform
+  const polyOutcomes   = [];
+  const kalshiOutcomes = [];
+  if (m.covered_a) {
+    (m.platform_a === 'polymarket' ? polyOutcomes : kalshiOutcomes)
+      .push(`${m.covered_a} @ ${m.price_a}`);
+  }
+  if (m.covered_b) {
+    (m.platform_b === 'polymarket' ? polyOutcomes : kalshiOutcomes)
+      .push(`${m.covered_b} @ ${m.price_b}`);
+  }
+
+  document.getElementById('alloc-poly-outcome').textContent =
+    polyOutcomes.length ? polyOutcomes.join(' + ') : 'worse price — not used';
+  document.getElementById('alloc-poly-amount').textContent =
+    polyOutcomes.length ? `$${polyAmt.toFixed(2)}` : '—';
+
+  document.getElementById('alloc-kalshi-outcome').textContent =
+    kalshiOutcomes.length ? kalshiOutcomes.join(' + ') : 'worse price — not used';
+  document.getElementById('alloc-kalshi-amount').textContent =
+    kalshiOutcomes.length ? `$${kalshiAmt.toFixed(2)}` : '—';
+
+  // Warn if over balance
+  const polyBal   = balances.polymarket;
+  const kalshiBal = balances.kalshi;
+  const polyCard   = document.getElementById('alloc-poly');
+  const kalshiCard = document.getElementById('alloc-kalshi');
+
+  polyCard.classList.toggle('over-limit',   polyBal   != null && polyAmt   > polyBal);
+  kalshiCard.classList.toggle('over-limit', kalshiBal != null && kalshiAmt > kalshiBal);
+
+  // Limit labels
+  const limLabel = (bal, liq, sf) => {
+    const parts = [];
+    if (bal   != null && sf > 0) parts.push(`bal: $${bal.toFixed(0)}`);
+    if (liq   > 0    && sf > 0) parts.push(`liq: $${(liq * sf * 0.05).toFixed(0)} (5%)`);
+    return parts.join('  ·  ');
+  };
+  document.getElementById('alloc-poly-limit').textContent =
+    limLabel(polyBal, m.poly_covered_liq, polySF);
+  document.getElementById('alloc-kalshi-limit').textContent =
+    limLabel(kalshiBal, m.kalshi_covered_liq, kalshiSF);
+}
+
+function closeModal(e) {
+  document.getElementById('bet-modal').classList.remove('open');
+  pendingMatchIdx = null;
+}
+
+function cancelBet() { closeModal(); }
+
+async function confirmBet() {
+  if (pendingMatchIdx == null) return;
+  const m = matches[pendingMatchIdx];
+  const stake = Number(document.getElementById('bet-slider').value);
+  closeModal();
+
+  const scale = stake / BASE_STAKE;
+  const betData = {
+    ...m,
+    profit_if_win:  +(m.profit_if_win  * scale).toFixed(2),
+    loss_if_reject: +(m.loss_if_reject * scale).toFixed(2),
+    stake,
+  };
+
+  // Step 1: Try to place orders on both platforms
+  let execution = {};
+  try {
+    const res = await api('POST', '/api/bets/execute', betData);
+    execution = res.execution || {};
+  } catch (e) {
+    // Network/server error — ask if they want simulation only
+    if (!confirm(`Could not reach exchange APIs:\n${e.message}\n\nSave as simulation bet anyway?`)) return;
+    await saveBet(betData);
+    return;
+  }
+
+  // Step 2: Analyse results
+  const platforms = Object.entries(execution);
+  const succeeded = platforms.filter(([, info]) => info && info.ok);
+  const failed    = platforms.filter(([, info]) => info && !info.ok);
+
+  // Build status message
+  const lines = [];
+  for (const [plat, info] of platforms) {
+    if (info && info.ok)         lines.push(`✓ ${plat}: order ${info.order_id}`);
+    else if (info && info.error) lines.push(`✗ ${plat}: ${info.error}`);
+    else if (info)               lines.push(`✗ ${plat}: order not placed`);
+  }
+
+  if (succeeded.length === platforms.length && platforms.length > 0) {
+    // Both platforms succeeded
+    alert('Orders placed successfully!\n\n' + lines.join('\n'));
+    await saveBet(betData);
+
+  } else if (succeeded.length > 0 && failed.length > 0) {
+    // Partial fill — one succeeded, other failed
+    // Backend auto-cancels the successful side, so both should now show failed
+    const rolledBack = platforms.some(([, info]) => info && info.cancelled);
+    const msg = rolledBack
+      ? 'One side failed — the other was automatically cancelled.\n\n' +
+        lines.join('\n') + '\n\nSave as simulation bet?'
+      : 'PARTIAL FILL — one side placed, other failed!\n\n' +
+        lines.join('\n') +
+        '\n\n⚠ Auto-cancel failed. You may need to manually cancel ' +
+        'the placed order on the exchange.\n\nSave to track it?';
+    if (confirm(msg)) await saveBet(betData);
+
+  } else if (platforms.length === 0) {
+    // No execution attempted (no market IDs, etc.)
+    if (confirm('No orders were sent (missing market IDs).\n\nSave as simulation bet?')) {
+      await saveBet(betData);
+    }
+
+  } else {
+    // Both failed
+    const msg = 'Both orders failed:\n\n' + lines.join('\n') +
+      '\n\nSave as simulation bet anyway?';
+    if (confirm(msg)) await saveBet(betData);
+  }
+}
+
+async function saveBet(betData) {
+  try {
+    await api('POST', '/api/bets', betData);
+    await fetchBets();
+    renderMatches();  // re-render to dim the newly placed bet
+  } catch (e) { alert('Error saving bet: ' + e.message); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Bet CRUD
+// ═══════════════════════════════════════════════════════════════
+async function toggleResult(id) {
+  try { await api('PATCH', `/api/bets/${id}/result`); fetchBets(); }
+  catch (e) { alert('Error: ' + e.message); }
+}
+
+async function deleteBet(id) {
+  if (!confirm('Remove this bet from the list?\n(This only deletes the local record, not the actual bet on the platform.)')) return;
+  try { await api('DELETE', `/api/bets/${id}`); await fetchBets(); renderMatches(); }
+  catch (e) { alert('Error: ' + e.message); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Sorting
+// ═══════════════════════════════════════════════════════════════
+function getSortVal(row, col) {
+  if (col === 'match') return `${row.home_team} ${row.away_team}`.toLowerCase();
+  return row[col] ?? '';
+}
+
+function sortArr(arr, col, dir) {
+  arr.sort((a, b) => {
+    const va = getSortVal(a, col), vb = getSortVal(b, col);
+    return (typeof va === 'string' ? va.localeCompare(vb) : va - vb) * dir;
+  });
+}
+
+function sortMatches(col) {
+  if (matchSortCol === col) matchSortDir *= -1; else { matchSortCol = col; matchSortDir = -1; }
+  renderMatches();
+}
+function sortBets(col) {
+  if (betSortCol === col) betSortDir *= -1; else { betSortCol = col; betSortDir = -1; }
+  renderBets();
+}
+
+function updateArrows(tableId, col, dir) {
+  document.querySelectorAll(`#${tableId} th .sa`).forEach(el => el.textContent = '');
+  const th = document.querySelector(`#${tableId} th[data-col="${col}"]`);
+  if (th) th.querySelector('.sa').textContent = dir > 0 ? '▲' : '▼';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Rendering
+// ═══════════════════════════════════════════════════════════════
+const cap = s => s ? s.replace(/\b\w/g, c => c.toUpperCase()) : '';
+
+function priceCell(val, outcome, rejected) {
+  const cls = outcome === rejected ? ' class="rejected"' : '';
+  return `<td${cls}>${val.toFixed(2)}</td>`;
+}
+
+function betKeySet() {
+  // Build a Set of keys for placed bets: match_key first, fallback to date+teams
+  const keys = new Set();
+  for (const b of bets) {
+    if (b.match_key) keys.add(b.match_key);
+    keys.add(`${b.date}|${(b.home_team||'').toLowerCase()}|${(b.away_team||'').toLowerCase()}`);
+  }
+  return keys;
+}
+
+function isAlreadyBet(m, placed) {
+  if (m.match_key && placed.has(m.match_key)) return true;
+  return placed.has(`${m.date}|${(m.home_team||'').toLowerCase()}|${(m.away_team||'').toLowerCase()}`);
+}
+
+function renderMatches() {
+  sortArr(matches, matchSortCol, matchSortDir);
+  updateArrows('matches-table', matchSortCol, matchSortDir);
+
+  const tbody = document.getElementById('matches-body');
+  const empty = document.getElementById('matches-empty');
+  if (!matches.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+
+  const placed = betKeySet();
+
+  tbody.innerHTML = matches.map((m, i) => {
+    const label   = cap(m.home_team) + ' vs ' + cap(m.away_team);
+    const display = label.length > 28 ? label.slice(0, 26) + '..' : label;
+    const polyL   = m.polymarket_url
+      ? `<a class="link-btn" href="${m.polymarket_url}" target="_blank" rel="noopener">PM</a>`
+      : '';
+    const kalL    = m.kalshi_url
+      ? `<a class="link-btn" href="${m.kalshi_url}" target="_blank" rel="noopener">KA</a>`
+      : '';
+    const dimmed  = isAlreadyBet(m, placed) ? ' class="already-bet"' : '';
+
+    return `<tr${dimmed}>
+      <td>${m.date}</td>
+      <td title="${label}">${display} ${polyL}${kalL}</td>
+      ${priceCell(m.best_home, 'home', m.rejected)}
+      ${priceCell(m.best_draw, 'draw', m.rejected)}
+      ${priceCell(m.best_away, 'away', m.rejected)}
+      <td>${(m.roi * 100).toFixed(1)}%</td>
+      <td>${m.score.toFixed(1)}</td>
+      <td><button class="btn btn-sm btn-place" onclick="openBetModal(${i})">Bet</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderBets() {
+  sortArr(bets, betSortCol, betSortDir);
+  updateArrows('bets-table', betSortCol, betSortDir);
+
+  const tbody = document.getElementById('bets-body');
+  const empty = document.getElementById('bets-empty');
+  if (!bets.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+
+  // Find max absolute P&L for normalizing color intensity
+  let maxAbs = 0;
+  for (const b of bets) {
+    if (b.result === 'PASS') maxAbs = Math.max(maxAbs, b.profit_if_win);
+    else if (b.result === 'FAIL') maxAbs = Math.max(maxAbs, b.loss_if_reject);
+  }
+  if (!maxAbs) maxAbs = 1;
+
+  tbody.innerHTML = bets.map(b => {
+    const label   = cap(b.home_team) + ' vs ' + cap(b.away_team);
+    const display = label.length > 24 ? label.slice(0, 22) + '..' : label;
+    const polyL   = b.polymarket_url
+      ? `<a class="link-btn" href="${b.polymarket_url}" target="_blank" rel="noopener">PM</a>`
+      : '';
+    const kalL    = b.kalshi_url
+      ? `<a class="link-btn" href="${b.kalshi_url}" target="_blank" rel="noopener">KA</a>`
+      : '';
+
+    let resCls, resCell, rowBg = '';
+    if (b.result === 'PASS') {
+      resCls = 'pass';
+      resCell = `+$${b.profit_if_win.toFixed(2)}`;
+      // Pastel green: hsl(145, 50%, 40%) at varying alpha
+      const t = Math.min(b.profit_if_win / maxAbs, 1);
+      const a = 0.08 + t * 0.18;  // 0.08 – 0.26 alpha range
+      rowBg = `background:rgba(100,200,130,${a.toFixed(2)})`;
+    } else if (b.result === 'FAIL') {
+      resCls = 'fail';
+      resCell = `-$${b.loss_if_reject.toFixed(2)}`;
+      // Pastel red: hsl(0, 60%, 55%) at varying alpha
+      const t = Math.min(b.loss_if_reject / maxAbs, 1);
+      const a = 0.08 + t * 0.18;
+      rowBg = `background:rgba(210,100,100,${a.toFixed(2)})`;
+    } else {
+      resCls = 'pending';
+      resCell = 'PENDING';
+    }
+
+    return `<tr${rowBg ? ` style="${rowBg}"` : ''}>
+      <td>${b.date}</td>
+      <td title="${label}">${display} ${polyL}${kalL}</td>
+      ${priceCell(b.best_home, 'home', b.rejected)}
+      ${priceCell(b.best_draw, 'draw', b.rejected)}
+      ${priceCell(b.best_away, 'away', b.rejected)}
+      <td>${(b.roi * 100).toFixed(1)}%</td>
+      <td>$${(b.stake || b.loss_if_reject || 0).toFixed(0)}</td>
+      <td><span class="${resCls}" style="cursor:pointer" title="Click to toggle" onclick="toggleResult(${b.id})">${resCell}</span></td>
+      <td><button class="btn btn-sm btn-del" onclick="deleteBet(${b.id})">✕</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderPnl() {
+  const el   = document.getElementById('pnl-total');
+  const sign = pnl.total >= 0 ? '+' : '';
+  el.style.color = pnl.total >= 0 ? 'var(--green)' : 'var(--red)';
+  el.textContent = `P&L: ${sign}$${pnl.total.toFixed(2)}`;
+  const fmt = v => v > 0 ? ` $${v.toFixed(0)}` : '';
+  document.getElementById('pnl-stats').innerHTML =
+    `<span style="color:var(--green)">${pnl.passes} PASS${fmt(pnl.pass_amount)}</span> · ` +
+    `<span style="color:var(--red)">${pnl.fails} FAIL${fmt(pnl.fail_amount)}</span> · ` +
+    `<span style="color:var(--text-muted)">${pnl.pending} PENDING${fmt(pnl.pending_amount)}</span>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Init
+// ═══════════════════════════════════════════════════════════════
+doScan(false);
+fetchBets();
+fetchBalances();
+
+setInterval(fetchBets,     60000);
+setInterval(fetchBalances, 120000);
+setInterval(doResolve,     300000);
+</script>
+</body>
+</html>

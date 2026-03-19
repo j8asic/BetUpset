@@ -1,0 +1,35 @@
+# Environment and secrets
+.env
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Legacy local-only archive
+legacy/
+tui.py
+
+# Virtual environment
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+.claude/
+*.swp
+
+# Project data
+trades.db
+*.csv
+!requirements.txt
+
+# OS
+.DS_Store

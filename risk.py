@@ -1,0 +1,105 @@
+"""
+Risk Manager for the Prediction Market Arbitrage Bot.
+
+Enforces position limits, stop-loss, and diversification rules
+before any trade is executed.
+"""
+
+from datetime import datetime
+from typing import Optional
+
+from platform_base import ArbOpportunity, RiskDecision
+from config import RiskConfig, BankrollConfig
+
+
+class RiskManager:
+    """Evaluates trades against risk limits before execution."""
+
+    def __init__(self, risk_config: RiskConfig, bankroll_config: BankrollConfig):
+        self.config = risk_config
+        self.starting_bankroll = bankroll_config.starting
+        self.current_bankroll = bankroll_config.starting
+
+    def update_bankroll(self, bankroll: float):
+        """Update the current bankroll after trades settle."""
+        self.current_bankroll = bankroll
+
+    def check_trade(
+        self,
+        opportunity: ArbOpportunity,
+        open_positions: list[dict],
+    ) -> RiskDecision:
+        """
+        Check if a trade passes all risk limits.
+
+        Args:
+            opportunity: The proposed trade
+            open_positions: List of currently open positions (from tracker)
+
+        Returns:
+            RiskDecision with approved/rejected and reason
+        """
+        # 1. Stop-loss: pause if bankroll dropped too much
+        drawdown = (self.starting_bankroll - self.current_bankroll) / self.starting_bankroll
+        if drawdown >= self.config.stop_loss_pct:
+            return RiskDecision(
+                approved=False,
+                reason=f"Stop-loss triggered: bankroll down {drawdown:.1%} "
+                       f"(limit {self.config.stop_loss_pct:.0%})",
+            )
+
+        # 2. Max exposure per match
+        match_exposure = sum(
+            pos.get("stake", 0) for pos in open_positions
+            if pos.get("match_key") == opportunity.match_key
+        )
+        if match_exposure + opportunity.stake > self.config.max_exposure_per_match:
+            return RiskDecision(
+                approved=False,
+                reason=f"Max exposure per match: ${match_exposure:.0f} + "
+                       f"${opportunity.stake:.0f} > ${self.config.max_exposure_per_match:.0f}",
+            )
+
+        # 3. Max total exposure across all open trades
+        total_exposure = sum(pos.get("stake", 0) for pos in open_positions)
+        if total_exposure + opportunity.stake > self.config.max_total_exposure:
+            return RiskDecision(
+                approved=False,
+                reason=f"Max total exposure: ${total_exposure:.0f} + "
+                       f"${opportunity.stake:.0f} > ${self.config.max_total_exposure:.0f}",
+            )
+
+        # 4. Max matchday exposure (% of bankroll on same day)
+        if opportunity.kickoff:
+            same_day_exposure = sum(
+                pos.get("stake", 0) for pos in open_positions
+                if _same_matchday(pos.get("kickoff"), opportunity.kickoff)
+            )
+            max_day = self.current_bankroll * self.config.max_matchday_exposure_pct
+            if same_day_exposure + opportunity.stake > max_day:
+                return RiskDecision(
+                    approved=False,
+                    reason=f"Max matchday exposure: ${same_day_exposure:.0f} + "
+                           f"${opportunity.stake:.0f} > ${max_day:.0f} "
+                           f"({self.config.max_matchday_exposure_pct:.0%} of bankroll)",
+                )
+
+        # 5. Adjust stake if it would exceed remaining capacity
+        remaining_total = self.config.max_total_exposure - total_exposure
+        remaining_match = self.config.max_exposure_per_match - match_exposure
+        max_allowed = min(remaining_total, remaining_match, opportunity.stake)
+
+        return RiskDecision(
+            approved=True,
+            adjusted_stake=max_allowed,
+        )
+
+
+def _same_matchday(
+    dt1: Optional[datetime],
+    dt2: Optional[datetime],
+) -> bool:
+    """Check if two datetimes are on the same calendar day."""
+    if dt1 is None or dt2 is None:
+        return False
+    return dt1.date() == dt2.date()
