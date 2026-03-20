@@ -19,7 +19,7 @@ import secrets
 import sys
 import time
 from dataclasses import asdict
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -69,8 +69,11 @@ _scan_total: int = 0
 _scan_time: float = 0
 _scan_lock = asyncio.Lock()
 SCAN_CACHE_TTL = 30  # seconds
+KICKOFF_INDEX_TTL = 300  # seconds
 
 _tracker = None
+_kickoff_index_cache: dict[str, dict[str, str]] = {"polymarket": {}, "kalshi": {}}
+_kickoff_index_time: float = 0.0
 
 
 def get_tracker():
@@ -113,6 +116,93 @@ def _get_platform_clients():
     for p in platforms:
         clients[p.name] = p
     return clients
+
+
+def _resolve_kickoff_from_bet_ids(bet: dict, kickoff_indexes: dict[str, dict[str, str]]) -> str:
+    for platform, field, key_name in (
+        ("polymarket", "poly_market_id", "_event_slug"),
+        ("kalshi", "kalshi_market_id", "_event_ticker"),
+    ):
+        raw_ids = bet.get(field, "")
+        if not raw_ids:
+            continue
+        try:
+            market_ids = json.loads(raw_ids)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        lookup_key = market_ids.get(key_name, "")
+        if not lookup_key:
+            continue
+        kickoff_iso = kickoff_indexes.get(platform, {}).get(lookup_key, "")
+        if kickoff_iso:
+            return kickoff_iso
+    return ""
+
+
+def _load_kickoff_indexes() -> dict[str, dict[str, str]]:
+    global _kickoff_index_cache, _kickoff_index_time
+
+    now = time.monotonic()
+    if _kickoff_index_time and now - _kickoff_index_time < KICKOFF_INDEX_TTL:
+        return _kickoff_index_cache
+
+    try:
+        clients = _get_platform_clients()
+    except (OSError, RuntimeError, ValueError):
+        return _kickoff_index_cache
+
+    kickoff_indexes: dict[str, dict[str, str]] = {"polymarket": {}, "kalshi": {}}
+    for platform, meta_key in (("polymarket", "_event_slug"), ("kalshi", "_event_ticker")):
+        client = clients.get(platform)
+        if not client or not hasattr(client, "fetch_soccer_markets"):
+            continue
+        try:
+            matches = client.fetch_soccer_markets()
+        except (OSError, RuntimeError, ValueError):
+            continue
+        for match in matches:
+            if not match.kickoff:
+                continue
+            try:
+                market_ids = json.loads(match.platform_market_id)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            lookup_key = market_ids.get(meta_key, "")
+            if lookup_key:
+                kickoff_indexes[platform][lookup_key] = match.kickoff.isoformat()
+
+    _kickoff_index_cache = kickoff_indexes
+    _kickoff_index_time = now
+    return kickoff_indexes
+
+
+def _bet_needs_kickoff_enrichment(bet: dict) -> bool:
+    if bet.get("kickoff_iso"):
+        return False
+    if not (bet.get("poly_market_id") or bet.get("kalshi_market_id")):
+        return False
+    if bet.get("result") != "PENDING":
+        return False
+    return _bet_is_ready_for_resolution_check(bet)
+
+
+def _enrich_bets_with_kickoff(bets: list[dict]) -> list[dict]:
+    missing = [bet for bet in bets if _bet_needs_kickoff_enrichment(bet)]
+    if not missing:
+        return bets
+
+    kickoff_indexes = _load_kickoff_indexes()
+    if not any(kickoff_indexes.values()):
+        return bets
+
+    tracker = get_tracker()
+    for bet in missing:
+        kickoff_iso = _resolve_kickoff_from_bet_ids(bet, kickoff_indexes)
+        if kickoff_iso:
+            bet["kickoff_iso"] = kickoff_iso
+            tracker.update_bet_kickoff(bet["id"], kickoff_iso)
+
+    return bets
 
 
 def _get_execution_config():
@@ -343,6 +433,7 @@ async def scan_post(request: Request, demo: Optional[bool] = None):
 class PlaceBetRequest(BaseModel):
     match_key: str
     date: str
+    kickoff_iso: str = ""
     home_team: str
     away_team: str
     best_home: float
@@ -379,6 +470,7 @@ async def bets_list(request: Request):
     _require_auth(request)
     tracker = get_tracker()
     bets = tracker.get_all_bets()
+    bets = await asyncio.to_thread(_enrich_bets_with_kickoff, bets)
     pnl = tracker.get_bets_pnl()
     return {"bets": bets, "pnl": pnl}
 
@@ -575,7 +667,7 @@ async def resolve_pending(request: Request):
     """Check platform APIs for settled markets and update PENDING bets."""
     _require_auth(request)
     tracker = get_tracker()
-    pending = tracker.get_pending_bets()
+    pending = [bet for bet in tracker.get_pending_bets() if _bet_is_ready_for_resolution_check(bet)]
     if not pending:
         return {"resolved": 0}
 
@@ -633,6 +725,30 @@ def _check_bet_resolution(bet: dict, kalshi, poly) -> Optional[str]:
             pass
 
     return None
+
+
+def _bet_is_ready_for_resolution_check(bet: dict, now: Optional[datetime] = None) -> bool:
+    now = now or datetime.now().astimezone()
+
+    kickoff_iso = str(bet.get("kickoff_iso", "") or "").strip()
+    if kickoff_iso:
+        try:
+            kickoff = datetime.fromisoformat(kickoff_iso)
+        except ValueError:
+            kickoff = None
+        if kickoff is not None:
+            if kickoff.tzinfo is None:
+                kickoff = kickoff.replace(tzinfo=now.tzinfo)
+            return kickoff <= now
+
+    raw_date = str(bet.get("date", "") or "").strip()
+    if raw_date:
+        try:
+            return date.fromisoformat(raw_date) <= now.date()
+        except ValueError:
+            return True
+
+    return True
 
 
 # ---------------------------------------------------------------------------

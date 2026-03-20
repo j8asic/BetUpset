@@ -6,6 +6,7 @@ Shared scan and row-formatting utilities used by the web app and TUI.
 import json
 import re
 from dataclasses import dataclass
+from datetime import datetime
 
 
 def _sorted_outcomes_by_price(available_prices: dict[str, float]) -> list[str]:
@@ -28,6 +29,7 @@ def _best_platform_for_outcome(
 class MatchRow:
     match_key: str
     date: str
+    kickoff_iso: str
     home_team: str
     away_team: str
     best_home: float
@@ -61,6 +63,12 @@ class MatchRow:
 def extract_date(match_key: str) -> str:
     match = re.search(r"\d{4}-\d{2}-\d{2}", match_key)
     return match.group(0) if match else "N/A"
+
+
+def _kickoff_iso(kickoff: datetime | None) -> str:
+    if not kickoff:
+        return ""
+    return kickoff.isoformat()
 
 
 def compute_match_rows(cross_matches) -> tuple[list[MatchRow], int]:
@@ -159,6 +167,7 @@ def compute_match_rows(cross_matches) -> tuple[list[MatchRow], int]:
         rows.append(MatchRow(
             match_key=match.match_key,
             date=extract_date(match.match_key),
+            kickoff_iso=_kickoff_iso(match.kickoff),
             home_team=match.home_team,
             away_team=match.away_team,
             best_home=round(best["home"], 3),

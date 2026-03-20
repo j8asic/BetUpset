@@ -6,11 +6,9 @@ Also maintains CSV logging for backward compatibility.
 """
 
 import csv
-import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from platform_base import ArbOpportunity
 
@@ -75,6 +73,7 @@ class PortfolioTracker:
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 match_key       TEXT NOT NULL,
                 date            TEXT NOT NULL,
+                kickoff_iso     TEXT DEFAULT '',
                 home_team       TEXT NOT NULL,
                 away_team       TEXT NOT NULL,
                 best_home       REAL NOT NULL,
@@ -100,7 +99,12 @@ class PortfolioTracker:
         try:
             conn.execute("ALTER TABLE bets ADD COLUMN stake REAL DEFAULT 0")
             conn.commit()
-        except Exception:
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        try:
+            conn.execute("ALTER TABLE bets ADD COLUMN kickoff_iso TEXT DEFAULT ''")
+            conn.commit()
+        except sqlite3.OperationalError:
             pass  # Column already exists
         conn.close()
 
@@ -108,7 +112,7 @@ class PortfolioTracker:
         """Create CSV file with headers if it doesn't exist."""
         path = Path(self.csv_path)
         if not path.exists():
-            with open(path, "w", newline="") as f:
+            with open(path, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 writer.writerow([
                     "Timestamp", "Match", "League", "Outcome_A", "Platform_A",
@@ -121,7 +125,7 @@ class PortfolioTracker:
         timestamp = datetime.now(timezone.utc).isoformat()
 
         # CSV log
-        with open(self.csv_path, "a", newline="") as f:
+        with open(self.csv_path, "a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow([
                 timestamp,
@@ -267,7 +271,7 @@ class PortfolioTracker:
     # ================================================================
 
     _BET_COLUMNS = [
-        "match_key", "date", "home_team", "away_team",
+        "match_key", "date", "kickoff_iso", "home_team", "away_team",
         "best_home", "best_draw", "best_away",
         "roi", "win_prob", "score",
         "rejected", "rejected_price", "profit_if_win", "loss_if_reject",
@@ -311,6 +315,16 @@ class PortfolioTracker:
         ).fetchall()
         conn.close()
         return [dict(r) for r in rows]
+
+    def update_bet_kickoff(self, bet_id: int, kickoff_iso: str):
+        """Persist kickoff info discovered after the bet was originally saved."""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            "UPDATE bets SET kickoff_iso = ? WHERE id = ?",
+            (kickoff_iso, bet_id),
+        )
+        conn.commit()
+        conn.close()
 
     def update_bet_result(self, bet_id: int, result: str):
         """Update the result field of a bet."""
@@ -365,19 +379,19 @@ class PortfolioTracker:
             conn.close()
             return
 
-        with open(path, newline="") as f:
+        with open(path, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for r in reader:
                 conn.execute(
                     """INSERT INTO bets (
-                        match_key, date, home_team, away_team,
+                        match_key, date, kickoff_iso, home_team, away_team,
                         best_home, best_draw, best_away,
                         roi, win_prob, score,
                         rejected, rejected_price, profit_if_win, loss_if_reject,
                         result, placed_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
-                        r["match_key"], r["date"], r["home_team"], r["away_team"],
+                        r["match_key"], r["date"], r.get("kickoff_iso", ""), r["home_team"], r["away_team"],
                         float(r["best_home"]), float(r["best_draw"]), float(r["best_away"]),
                         float(r["roi"]), float(r["win_prob"]), float(r["score"]),
                         r["rejected"], float(r["rejected_price"]),

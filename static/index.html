@@ -17,6 +17,7 @@
     --blue: #a8d8ea;
     --yellow: #ffd3b6;
     --accent: #7c83fd;
+    --ui-font-size: 12px;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -25,7 +26,7 @@
     font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
     background: var(--bg);
     color: var(--text);
-    font-size: 13px;
+    font-size: var(--ui-font-size);
     min-height: 100vh;
   }
 
@@ -44,10 +45,10 @@
   header h1 { font-size: 18px; font-weight: 600; color: var(--blue); letter-spacing: 1px; }
 
   .header-right { display: flex; gap: 8px; align-items: center; }
-  #scan-status { color: var(--text-muted); font-size: 12px; }
+  #scan-status { color: var(--text-muted); font-size: var(--ui-font-size); }
   #execution-mode {
     color: var(--yellow);
-    font-size: 11px;
+    font-size: var(--ui-font-size);
     letter-spacing: 0.5px;
   }
 
@@ -59,13 +60,13 @@
     padding: 6px 14px;
     border-radius: 6px;
     cursor: pointer;
-    font-size: 12px;
+    font-size: var(--ui-font-size);
     font-family: inherit;
     transition: background 0.15s;
   }
   .btn:hover { background: var(--accent); color: #fff; }
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .btn-sm { padding: 3px 8px; font-size: 11px; }
+  .btn-sm { padding: 3px 8px; font-size: var(--ui-font-size); }
   .btn-place { border-color: var(--green); color: var(--green); }
   .btn-place:hover { background: var(--green); color: var(--bg); }
   .btn-del { border-color: var(--red); color: var(--red); }
@@ -92,7 +93,7 @@
     background: var(--panel);
     padding: 10px 16px;
     font-weight: 600;
-    font-size: 13px;
+    font-size: var(--ui-font-size);
     letter-spacing: 0.5px;
     border-bottom: 1px solid var(--border);
     display: flex;
@@ -106,7 +107,7 @@
   #balances-bar {
     background: var(--panel);
     padding: 7px 16px;
-    font-size: 12px;
+    font-size: var(--ui-font-size);
     border-bottom: 1px solid var(--border);
     display: flex;
     gap: 24px;
@@ -134,15 +135,50 @@
     position: sticky; top: 0; z-index: 1;
     cursor: pointer; user-select: none;
     font-weight: 500; color: var(--text-muted);
-    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    font-size: var(--ui-font-size); text-transform: uppercase; letter-spacing: 0.5px;
   }
   th:hover { color: var(--text); }
-  th .sa { margin-left: 3px; font-size: 10px; }
+  th .sa { margin-left: 3px; font-size: var(--ui-font-size); }
 
   td:nth-child(1), th:nth-child(1),
   td:nth-child(2), th:nth-child(2) { text-align: left; }
 
+  .date-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    line-height: 1.25;
+  }
+
+  .date-live-time {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
   tr:hover td { background: rgba(255,255,255,0.03); }
+
+  @keyframes livePulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.45; transform: scale(0.86); }
+  }
+
+  tr.live-match td {
+    box-shadow: inset 0 0 0 999px rgba(255, 211, 182, 0.06);
+  }
+
+  .live-indicator {
+    display: inline-flex;
+    align-items: center;
+    color: var(--yellow);
+    vertical-align: middle;
+  }
+
+  .live-dot {
+    display: inline-block;
+    animation: livePulse 1.15s ease-in-out infinite;
+    transform-origin: center;
+  }
 
   .rejected { color: var(--red); }
   .pass  { color: var(--green); }
@@ -151,7 +187,7 @@
 
   .link-btn {
     display: inline-block; padding: 2px 6px; border-radius: 3px;
-    font-size: 10px; text-decoration: none; color: var(--text-muted);
+    font-size: var(--ui-font-size); text-decoration: none; color: var(--text-muted);
     border: 1px solid var(--border); margin: 0 1px; transition: all 0.15s;
   }
   .link-btn:hover { color: var(--accent); border-color: var(--accent); }
@@ -163,15 +199,15 @@
     padding: 7px 16px;
     border-bottom: 1px solid var(--border);
     display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
-    font-size: 12px;
+    font-size: var(--ui-font-size);
   }
-  .pnl-total { font-weight: 600; font-size: 12px; color: var(--yellow); }
-  .pnl-stat  { color: var(--text-muted); font-size: 12px; }
+  .pnl-total { font-weight: 600; font-size: var(--ui-font-size); color: var(--yellow); }
+  .pnl-stat  { color: var(--text-muted); font-size: var(--ui-font-size); }
 
   tr.already-bet td { opacity: 0.35; }
   tr.already-bet .btn-place { opacity: 0.6; }
 
-  .empty { padding: 40px; text-align: center; color: var(--text-muted); font-size: 13px; }
+  .empty { padding: 40px; text-align: center; color: var(--text-muted); font-size: var(--ui-font-size); }
 
   /* ── Modal ───────────────────────────────────────────────────── */
   .modal-overlay {
@@ -193,7 +229,7 @@
   }
 
   .modal h2 {
-    font-size: 15px; font-weight: 600; color: var(--blue);
+    font-size: var(--ui-font-size); font-weight: 600; color: var(--blue);
     margin-bottom: 20px; letter-spacing: 0.5px;
   }
 
@@ -207,15 +243,15 @@
     border: 1px solid var(--border);
     border-radius: 8px; padding: 10px 14px;
   }
-  .modal-stat .s-label { color: var(--text-muted); font-size: 11px; margin-bottom: 3px; }
-  .modal-stat .s-value { font-weight: 600; font-size: 14px; }
+  .modal-stat .s-label { color: var(--text-muted); font-size: var(--ui-font-size); margin-bottom: 3px; }
+  .modal-stat .s-value { font-weight: 600; font-size: var(--ui-font-size); }
 
   .modal-slider-row { margin-bottom: 22px; }
   .slider-header {
     display: flex; justify-content: space-between;
-    margin-bottom: 10px; font-size: 12px; color: var(--text-muted);
+    margin-bottom: 10px; font-size: var(--ui-font-size); color: var(--text-muted);
   }
-  .slider-header span:last-child { color: var(--yellow); font-weight: 600; font-size: 14px; }
+  .slider-header span:last-child { color: var(--yellow); font-weight: 600; font-size: var(--ui-font-size); }
 
   input[type=range] {
     width: 100%; accent-color: var(--accent);
@@ -223,7 +259,7 @@
   }
   .slider-limits {
     display: flex; justify-content: space-between;
-    font-size: 11px; color: var(--text-muted); margin-top: 6px;
+    font-size: var(--ui-font-size); color: var(--text-muted); margin-top: 6px;
   }
 
   .modal-projected {
@@ -233,9 +269,9 @@
     margin-bottom: 14px;
     display: flex; justify-content: space-between; align-items: center;
   }
-  .proj-label { color: var(--text-muted); font-size: 12px; }
-  .proj-win  { color: var(--green); font-weight: 700; font-size: 15px; }
-  .proj-risk { color: var(--red);   font-weight: 600; font-size: 12px; }
+  .proj-label { color: var(--text-muted); font-size: var(--ui-font-size); }
+  .proj-win  { color: var(--green); font-weight: 700; font-size: var(--ui-font-size); }
+  .proj-risk { color: var(--red);   font-weight: 600; font-size: var(--ui-font-size); }
 
   /* Platform allocation breakdown */
   .platform-alloc {
@@ -247,15 +283,15 @@
     border: 1px solid var(--border);
     border-radius: 8px; padding: 10px 14px;
   }
-  .alloc-card .a-platform { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
-  .alloc-card .a-outcome  { font-size: 12px; color: var(--text); margin-bottom: 2px; }
-  .alloc-card .a-amount   { font-size: 15px; font-weight: 700; color: var(--yellow); }
-  .alloc-card .a-limit    { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+  .alloc-card .a-platform { font-size: var(--ui-font-size); color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .alloc-card .a-outcome  { font-size: var(--ui-font-size); color: var(--text); margin-bottom: 2px; }
+  .alloc-card .a-amount   { font-size: var(--ui-font-size); font-weight: 700; color: var(--yellow); }
+  .alloc-card .a-limit    { font-size: var(--ui-font-size); color: var(--text-muted); margin-top: 4px; }
   .alloc-card.over-limit  { border-color: var(--red); }
   .alloc-card.over-limit .a-amount { color: var(--red); }
 
   .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
-  .modal-copy { color: var(--text-muted); font-size: 12px; margin-bottom: 14px; line-height: 1.5; }
+  .modal-copy { color: var(--text-muted); font-size: var(--ui-font-size); margin-bottom: 14px; line-height: 1.5; }
   .modal-input {
     width: 100%;
     background: var(--bg);
@@ -267,14 +303,14 @@
     margin-bottom: 12px;
   }
   .modal-input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
-  .modal-error { color: var(--red); font-size: 12px; min-height: 18px; margin-bottom: 10px; }
+  .modal-error { color: var(--red); font-size: var(--ui-font-size); min-height: 18px; margin-bottom: 10px; }
 
   /* ── Mobile ──────────────────────────────────────────────────── */
   @media (max-width: 768px) {
     .panels { flex-direction: column; height: auto; min-height: 100vh; }
     .panel { min-height: 40vh; }
     .panel:first-child { border-right: none; border-bottom: 1px solid var(--border); }
-    body { font-size: 12px; }
+    body { font-size: var(--ui-font-size); }
     th, td { padding: 5px 6px; }
     .modal-info { grid-template-columns: 1fr; }
   }
@@ -472,6 +508,67 @@ let refreshTimersStarted = false;
 let executionPolicy = null;
 let lastScannedAt = 0;
 
+function isLiveMatch(match) {
+  if (!match || !match.kickoff_iso) return false;
+  const kickoffMs = Date.parse(match.kickoff_iso);
+  if (Number.isNaN(kickoffMs)) return false;
+  const now = Date.now();
+  const liveWindowMs = 2.5 * 60 * 60 * 1000;
+  return now >= kickoffMs && now <= kickoffMs + liveWindowMs;
+}
+
+function getDisplayTimeZone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Paris';
+}
+
+function isTodayInDisplayTimeZone(date) {
+  const tz = getDisplayTimeZone();
+  const today = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+  const target = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+  return today === target;
+}
+
+function formatMatchDateCell(match) {
+  if (!match || !match.kickoff_iso) return match?.date || '';
+  const kickoff = new Date(match.kickoff_iso);
+  if (Number.isNaN(kickoff.getTime()) || !isTodayInDisplayTimeZone(kickoff)) return match.date;
+
+  const timeText = new Intl.DateTimeFormat('en-GB', {
+    timeZone: getDisplayTimeZone(),
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(kickoff);
+
+  const liveMarker = isLiveMatch(match)
+    ? `<span class="live-indicator" title="Match is currently live"><span class="live-dot">●</span></span>`
+    : '';
+
+  return `<span class="date-live-time">${timeText}${liveMarker}</span>`;
+}
+
+function getDateSortVal(row) {
+  if (row && row.kickoff_iso) {
+    const kickoffMs = Date.parse(row.kickoff_iso);
+    if (!Number.isNaN(kickoffMs)) return kickoffMs;
+  }
+  if (row && row.date) {
+    const dateMs = Date.parse(`${row.date}T23:59:59`);
+    if (!Number.isNaN(dateMs)) return dateMs;
+  }
+  return Number.MAX_SAFE_INTEGER;
+}
+
 // ═══════════════════════════════════════════════════════════════
 // API helpers
 // ═══════════════════════════════════════════════════════════════
@@ -623,10 +720,48 @@ async function fetchBets() {
     const data = await api('GET', '/api/bets');
     bets = data.bets || [];
     pnl  = data.pnl  || { total: 0, passes: 0, fails: 0, pending: 0 };
-    document.getElementById('bet-count').textContent = bets.length;
-    renderBets();
-    renderPnl();
+    syncBetsUi();
   } catch (e) { console.error('fetchBets:', e); }
+}
+
+function computePnlFromBets(rows) {
+  const next = {
+    total: 0,
+    passes: 0,
+    pass_amount: 0,
+    fails: 0,
+    fail_amount: 0,
+    pending: 0,
+    pending_amount: 0,
+  };
+
+  for (const bet of rows) {
+    if (bet.result === 'PASS') {
+      next.passes += 1;
+      next.pass_amount += Number(bet.profit_if_win || 0);
+      continue;
+    }
+    if (bet.result === 'FAIL') {
+      next.fails += 1;
+      next.fail_amount += Number(bet.loss_if_reject || 0);
+      continue;
+    }
+    next.pending += 1;
+    next.pending_amount += Number(bet.stake || bet.loss_if_reject || 0);
+  }
+
+  next.total = +(next.pass_amount - next.fail_amount).toFixed(2);
+  next.pass_amount = +next.pass_amount.toFixed(2);
+  next.fail_amount = +next.fail_amount.toFixed(2);
+  next.pending_amount = +next.pending_amount.toFixed(2);
+  return next;
+}
+
+function syncBetsUi() {
+  document.getElementById('bet-count').textContent = bets.length;
+  pnl = computePnlFromBets(bets);
+  renderBets();
+  renderPnl();
 }
 
 async function fetchBalances() {
@@ -872,8 +1007,15 @@ async function confirmBet() {
 
 async function saveBet(betData) {
   try {
-    await api('POST', '/api/bets', betData);
-    await fetchBets();
+    const res = await api('POST', '/api/bets', betData);
+    const savedBet = res.bet || {
+      ...betData,
+      id: res.id,
+      result: 'PENDING',
+      placed_at: new Date().toISOString(),
+    };
+    bets = [savedBet, ...bets];
+    syncBetsUi();
     renderMatches();  // re-render to dim the newly placed bet
   } catch (e) { alert('Error saving bet: ' + e.message); }
 }
@@ -882,14 +1024,37 @@ async function saveBet(betData) {
 // Bet CRUD
 // ═══════════════════════════════════════════════════════════════
 async function toggleResult(id) {
-  try { await api('PATCH', `/api/bets/${id}/result`); fetchBets(); }
+  try {
+    const res = await api('PATCH', `/api/bets/${id}/result`);
+    const idx = bets.findIndex(b => b.id === id);
+    if (idx >= 0) {
+      bets[idx] = { ...bets[idx], result: res.result };
+      syncBetsUi();
+    }
+  }
   catch (e) { alert('Error: ' + e.message); }
 }
 
 async function deleteBet(id) {
   if (!confirm('Remove this bet from the list?\n(This only deletes the local record, not the actual bet on the platform.)')) return;
-  try { await api('DELETE', `/api/bets/${id}`); await fetchBets(); renderMatches(); }
-  catch (e) { alert('Error: ' + e.message); }
+  const idx = bets.findIndex(b => b.id === id);
+  const removed = idx >= 0 ? bets[idx] : null;
+
+  if (idx >= 0) {
+    bets = bets.filter(b => b.id !== id);
+    syncBetsUi();
+    renderMatches();
+  }
+
+  try { await api('DELETE', `/api/bets/${id}`); }
+  catch (e) {
+    if (removed) {
+      bets.splice(idx, 0, removed);
+      syncBetsUi();
+      renderMatches();
+    }
+    alert('Error: ' + e.message);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -897,6 +1062,7 @@ async function deleteBet(id) {
 // ═══════════════════════════════════════════════════════════════
 function getSortVal(row, col) {
   if (col === 'match') return `${row.home_team} ${row.away_team}`.toLowerCase();
+  if (col === 'date') return getDateSortVal(row);
   return row[col] ?? '';
 }
 
@@ -908,11 +1074,21 @@ function sortArr(arr, col, dir) {
 }
 
 function sortMatches(col) {
-  if (matchSortCol === col) matchSortDir *= -1; else { matchSortCol = col; matchSortDir = -1; }
+  if (matchSortCol === col) {
+    matchSortDir *= -1;
+  } else {
+    matchSortCol = col;
+    matchSortDir = col === 'date' ? 1 : -1;
+  }
   renderMatches();
 }
 function sortBets(col) {
-  if (betSortCol === col) betSortDir *= -1; else { betSortCol = col; betSortDir = -1; }
+  if (betSortCol === col) {
+    betSortDir *= -1;
+  } else {
+    betSortCol = col;
+    betSortDir = col === 'date' ? 1 : -1;
+  }
   renderBets();
 }
 
@@ -961,16 +1137,21 @@ function renderMatches() {
   tbody.innerHTML = matches.map((m, i) => {
     const label   = cap(m.home_team) + ' vs ' + cap(m.away_team);
     const display = label.length > 28 ? label.slice(0, 26) + '..' : label;
+    const dateCell = formatMatchDateCell(m);
+    const live = isLiveMatch(m);
     const polyL   = m.polymarket_url
       ? `<a class="link-btn" href="${m.polymarket_url}" target="_blank" rel="noopener">P</a>`
       : '';
     const kalL    = m.kalshi_url
       ? `<a class="link-btn" href="${m.kalshi_url}" target="_blank" rel="noopener">K</a>`
       : '';
-    const dimmed  = isAlreadyBet(m, placed) ? ' class="already-bet"' : '';
+    const classes = [];
+    if (isAlreadyBet(m, placed)) classes.push('already-bet');
+    if (live) classes.push('live-match');
+    const rowClass = classes.length ? ` class="${classes.join(' ')}"` : '';
 
-    return `<tr${dimmed}>
-      <td>${m.date}</td>
+    return `<tr${rowClass}>
+      <td class="date-cell">${dateCell}</td>
       <td title="${label}">${display} ${polyL}${kalL}</td>
       ${priceCell(m.best_home, 'home', m.rejected)}
       ${priceCell(m.best_draw, 'draw', m.rejected)}
@@ -1002,6 +1183,8 @@ function renderBets() {
   tbody.innerHTML = bets.map(b => {
     const label   = cap(b.home_team) + ' vs ' + cap(b.away_team);
     const display = label.length > 24 ? label.slice(0, 22) + '..' : label;
+    const dateCell = formatMatchDateCell(b);
+    const live = isLiveMatch(b);
     const polyL   = b.polymarket_url
       ? `<a class="link-btn" href="${b.polymarket_url}" target="_blank" rel="noopener">P</a>`
       : '';
@@ -1029,8 +1212,13 @@ function renderBets() {
       resCell = 'PENDING';
     }
 
-    return `<tr${rowBg ? ` style="${rowBg}"` : ''}>
-      <td>${b.date}</td>
+    const rowClasses = [];
+    if (live) rowClasses.push('live-match');
+    const classAttr = rowClasses.length ? ` class="${rowClasses.join(' ')}"` : '';
+    const styleAttr = rowBg ? ` style="${rowBg}"` : '';
+
+    return `<tr${classAttr}${styleAttr}>
+      <td class="date-cell">${dateCell}</td>
       <td title="${label}">${display} ${polyL}${kalL}</td>
       ${priceCell(b.best_home, 'home', b.rejected)}
       ${priceCell(b.best_draw, 'draw', b.rejected)}
