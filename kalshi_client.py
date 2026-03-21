@@ -563,10 +563,23 @@ class KalshiClient(PlatformClient):
 
         Returns 'yes' or 'no' if settled, None if still open.
         """
-        data = self._get(f"/markets/{ticker}")
+        path = f"/markets/{ticker}"
+        # Use auth headers if RSA key is available, otherwise fall back to session
+        if self._private_key is not None:
+            auth_headers = self._make_auth_headers("GET", f"/trade-api/v2{path}")
+            try:
+                self._rate_limit()
+                resp = self.session.get(f"{self.BASE_URL}{path}", headers=auth_headers, timeout=15)
+                data = resp.json() if resp.status_code == 200 else None
+            except Exception as e:
+                print(f"[Kalshi] get_market_result error: {e}")
+                data = None
+        else:
+            data = self._get(path)
+
         if data and "market" in data:
             market = data["market"]
-            if market.get("status") == "settled":
+            if market.get("status") in ("settled", "determined", "finalized"):
                 return market.get("result")  # "yes" or "no"
         return None
 
