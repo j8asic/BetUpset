@@ -398,7 +398,25 @@
         </tr></thead>
         <tbody id="bets-body"></tbody>
       </table>
-      <div id="bets-empty" class="empty" style="display:none;">No bets placed yet. Select a match and click Bet.</div>
+      <div id="bets-empty" class="empty" style="display:none;">No active bets.</div>
+    </div>
+
+    <div class="table-wrap" id="bets-history-wrap" style="margin-top:18px">
+<table id="bets-history-table">
+        <thead><tr>
+          <th data-col="date"      onclick="sortHistory('date')">Date <span class="sa"></span></th>
+          <th data-col="match"     onclick="sortHistory('match')">Match <span class="sa"></span></th>
+          <th data-col="best_home" onclick="sortHistory('best_home')">1 <span class="sa"></span></th>
+          <th data-col="best_draw" onclick="sortHistory('best_draw')">X <span class="sa"></span></th>
+          <th data-col="best_away" onclick="sortHistory('best_away')">2 <span class="sa"></span></th>
+          <th data-col="roi"       onclick="sortHistory('roi')">ROI% <span class="sa"></span></th>
+          <th data-col="stake"     onclick="sortHistory('stake')">Stake <span class="sa"></span></th>
+          <th data-col="result"    onclick="sortHistory('result')">Result <span class="sa"></span></th>
+          <th></th>
+        </tr></thead>
+        <tbody id="bets-history-body"></tbody>
+      </table>
+      <div id="bets-history-empty" class="empty" style="display:none;">No finished bets yet.</div>
     </div>
   </div>
 </div>
@@ -499,8 +517,9 @@ let bets    = [];
 let pnl     = { total: 0, passes: 0, fails: 0, pending: 0 };
 let balances = { kalshi: null, polymarket: null };
 
-let matchSortCol = 'score', matchSortDir = -1;
-let betSortCol   = 'placed_at', betSortDir = -1;
+let matchSortCol = 'date', matchSortDir = 1;
+let betSortCol   = 'date',  betSortDir  = 1;
+let histSortCol  = 'date',  histSortDir = -1;
 
 let pendingMatchIdx = null;  // index of match being confirmed
 let authState = { enabled: false, authenticated: true };
@@ -690,6 +709,7 @@ function startRefreshTimers() {
 async function loadDashboard() {
   await fetchBets();
   await fetchBalances();
+  await doResolve();
   await doScan(false);
   startRefreshTimers();
 }
@@ -758,7 +778,13 @@ function computePnlFromBets(rows) {
 }
 
 function syncBetsUi() {
-  document.getElementById('bet-count').textContent = bets.length;
+  const activeCount   = bets.filter(b => !b.result || b.result === 'PENDING').length;
+  const finishedCount = bets.length - activeCount;
+  const countEl = document.getElementById('bet-count');
+  const parts = [];
+  if (activeCount)   parts.push(`${activeCount} pending`);
+  if (finishedCount) parts.push(`${finishedCount} finished`);
+  countEl.textContent = parts.join(' · ');
   pnl = computePnlFromBets(bets);
   renderBets();
   renderPnl();
@@ -1078,7 +1104,7 @@ function sortMatches(col) {
     matchSortDir *= -1;
   } else {
     matchSortCol = col;
-    matchSortDir = col === 'date' ? 1 : -1;
+    matchSortDir = -1;  // Default descending (newest/highest first)
   }
   renderMatches();
 }
@@ -1087,7 +1113,16 @@ function sortBets(col) {
     betSortDir *= -1;
   } else {
     betSortCol = col;
-    betSortDir = col === 'date' ? 1 : -1;
+    betSortDir = -1;    // Default descending (newest/highest first)
+  }
+  renderBets();
+}
+function sortHistory(col) {
+  if (histSortCol === col) {
+    histSortDir *= -1;
+  } else {
+    histSortCol = col;
+    histSortDir = -1;
   }
   renderBets();
 }
@@ -1149,6 +1184,8 @@ function renderMatches() {
     if (isAlreadyBet(m, placed)) classes.push('already-bet');
     if (live) classes.push('live-match');
     const rowClass = classes.length ? ` class="${classes.join(' ')}"` : '';
+    const st = Math.min(m.score / 10, 1);
+    const scoreColor = `rgb(${Math.round(210 - st*110)},${Math.round(100 + st*100)},${Math.round(100 + st*30)})`;
 
     return `<tr${rowClass}>
       <td class="date-cell">${dateCell}</td>
@@ -1157,38 +1194,22 @@ function renderMatches() {
       ${priceCell(m.best_draw, 'draw', m.rejected)}
       ${priceCell(m.best_away, 'away', m.rejected)}
       <td>${(m.roi * 100).toFixed(1)}%</td>
-      <td>${m.score.toFixed(1)}</td>
+      <td style="color:${scoreColor};font-weight:600">${m.score.toFixed(1)}</td>
       <td><button class="btn btn-sm btn-place" onclick="openBetModal(${i})">Bet</button></td>
     </tr>`;
   }).join('');
 }
 
-function renderBets() {
-  sortArr(bets, betSortCol, betSortDir);
-  updateArrows('bets-table', betSortCol, betSortDir);
-
-  const tbody = document.getElementById('bets-body');
-  const empty = document.getElementById('bets-empty');
-  if (!bets.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
-  empty.style.display = 'none';
-
-  // Find max absolute P&L for normalizing color intensity
-  let maxAbs = 0;
-  for (const b of bets) {
-    if (b.result === 'PASS') maxAbs = Math.max(maxAbs, b.profit_if_win);
-    else if (b.result === 'FAIL') maxAbs = Math.max(maxAbs, b.loss_if_reject);
-  }
-  if (!maxAbs) maxAbs = 1;
-
-  tbody.innerHTML = bets.map(b => {
+function renderBetRows(arr, maxAbs) {
+  return arr.map(b => {
     const label   = cap(b.home_team) + ' vs ' + cap(b.away_team);
     const display = label.length > 24 ? label.slice(0, 22) + '..' : label;
     const dateCell = formatMatchDateCell(b);
     const live = isLiveMatch(b);
-    const polyL   = b.polymarket_url
+    const polyL = b.polymarket_url
       ? `<a class="link-btn" href="${b.polymarket_url}" target="_blank" rel="noopener">P</a>`
       : '';
-    const kalL    = b.kalshi_url
+    const kalL  = b.kalshi_url
       ? `<a class="link-btn" href="${b.kalshi_url}" target="_blank" rel="noopener">K</a>`
       : '';
 
@@ -1196,14 +1217,12 @@ function renderBets() {
     if (b.result === 'PASS') {
       resCls = 'pass';
       resCell = `+$${b.profit_if_win.toFixed(2)}`;
-      // Pastel green: hsl(145, 50%, 40%) at varying alpha
       const t = Math.min(b.profit_if_win / maxAbs, 1);
-      const a = 0.08 + t * 0.18;  // 0.08 – 0.26 alpha range
+      const a = 0.08 + t * 0.18;
       rowBg = `background:rgba(100,200,130,${a.toFixed(2)})`;
     } else if (b.result === 'FAIL') {
       resCls = 'fail';
       resCell = `-$${b.loss_if_reject.toFixed(2)}`;
-      // Pastel red: hsl(0, 60%, 55%) at varying alpha
       const t = Math.min(b.loss_if_reject / maxAbs, 1);
       const a = 0.08 + t * 0.18;
       rowBg = `background:rgba(210,100,100,${a.toFixed(2)})`;
@@ -1229,6 +1248,48 @@ function renderBets() {
       <td><button class="btn btn-sm btn-del" onclick="deleteBet(${b.id})">✕</button></td>
     </tr>`;
   }).join('');
+}
+
+function renderBets() {
+  const pending = bets.filter(b => !b.result || b.result === 'PENDING');
+  const history = bets.filter(b => b.result && b.result !== 'PENDING');
+
+  // Find max absolute P&L for normalizing color intensity across all bets
+  let maxAbs = 0;
+  for (const b of bets) {
+    if (b.result === 'PASS') maxAbs = Math.max(maxAbs, b.profit_if_win);
+    else if (b.result === 'FAIL') maxAbs = Math.max(maxAbs, b.loss_if_reject);
+  }
+  if (!maxAbs) maxAbs = 1;
+
+  // Active / pending bets
+  sortArr(pending, betSortCol, betSortDir);
+  updateArrows('bets-table', betSortCol, betSortDir);
+  const tbody = document.getElementById('bets-body');
+  const empty  = document.getElementById('bets-empty');
+  if (pending.length) {
+    empty.style.display = 'none';
+    tbody.innerHTML = renderBetRows(pending, maxAbs);
+  } else {
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+  }
+
+  // Finished bets (history)
+  sortArr(history, histSortCol, histSortDir);
+  updateArrows('bets-history-table', histSortCol, histSortDir);
+  const histBody  = document.getElementById('bets-history-body');
+  const histEmpty = document.getElementById('bets-history-empty');
+  const histWrap  = document.getElementById('bets-history-wrap');
+  if (history.length) {
+    histEmpty.style.display = 'none';
+    histBody.innerHTML = renderBetRows(history, maxAbs);
+    histWrap.style.display = '';
+  } else {
+    histBody.innerHTML = '';
+    histEmpty.style.display = 'block';
+    histWrap.style.display = 'none';
+  }
 }
 
 function renderPnl() {
