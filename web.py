@@ -631,6 +631,94 @@ async def bets_delete(request: Request, bet_id: int):
     return {"ok": True}
 
 
+def _sell_bet_positions(bet: dict) -> dict:
+    """Blocking: sell platform positions for a bet, iterating all stored market IDs."""
+    results: dict[str, str] = {}
+
+    try:
+        clients = _get_platform_clients()
+    except Exception as e:
+        return {"error": str(e)}
+
+    poly = clients.get("polymarket")
+    kalshi = clients.get("kalshi")
+
+    # --- Polymarket: sell any token we hold ---
+    poly_raw = bet.get("poly_market_id") or ""
+    if poly and poly_raw:
+        try:
+            poly_ids = json.loads(poly_raw)
+            clob_tokens: dict = poly_ids.get("_clob_tokens", {})
+            sold_any = False
+            for outcome, token_id in clob_tokens.items():
+                if not token_id:
+                    continue
+                shares = poly.get_position(token_id)
+                if shares > 0:
+                    # Fetch current YES price for this token as sell price
+                    market_data = poly._get(f"markets/{poly_ids.get(outcome, '')}")
+                    price = 0.5
+                    if market_data:
+                        try:
+                            tokens = market_data.get("tokens", [])
+                            for t in tokens:
+                                if t.get("token_id") == token_id:
+                                    price = float(t.get("price", 0.5))
+                        except Exception:
+                            pass
+                    ok = poly.sell_position(token_id, shares, price)
+                    results[f"polymarket_{outcome}"] = "sold" if ok else "sell_failed"
+                    sold_any = True
+            if not sold_any:
+                results["polymarket"] = "no_position"
+        except Exception as e:
+            results["polymarket"] = f"error: {e}"
+
+    # --- Kalshi: sell any position we hold ---
+    kalshi_raw = bet.get("kalshi_market_id") or ""
+    if kalshi and kalshi_raw:
+        try:
+            kalshi_ids = json.loads(kalshi_raw)
+            sold_any = False
+            for key, ticker in kalshi_ids.items():
+                if key.startswith("_") or not ticker:
+                    continue
+                for side in ("yes", "no"):
+                    count = kalshi.get_position(ticker, side)
+                    if count > 0:
+                        market_data = kalshi._get(f"/markets/{ticker}")
+                        price_cents = 50
+                        if market_data and "market" in market_data:
+                            m = market_data["market"]
+                            price_cents = int(m.get("yes_bid", 50) if side == "yes"
+                                              else (100 - m.get("yes_ask", 50)))
+                            price_cents = max(1, min(99, price_cents))
+                        ok = kalshi.sell_position(ticker, side, count, price_cents)
+                        results[f"kalshi_{key}_{side}"] = "sold" if ok else "sell_failed"
+                        sold_any = True
+            if not sold_any:
+                results["kalshi"] = "no_position"
+        except Exception as e:
+            results["kalshi"] = f"error: {e}"
+
+    return results
+
+
+@app.post("/api/bets/{bet_id}/sell")
+async def bets_sell(request: Request, bet_id: int):
+    """Sell platform positions for a pending bet, then delete the local record."""
+    _require_auth(request)
+    tracker = get_tracker()
+    all_bets = tracker.get_all_bets()
+    bet = next((b for b in all_bets if b["id"] == bet_id), None)
+    if not bet:
+        raise HTTPException(status_code=404, detail="Bet not found")
+
+    results = await asyncio.to_thread(_sell_bet_positions, bet)
+    tracker.delete_bet(bet_id)
+    return {"ok": True, "results": results}
+
+
 # ---------------------------------------------------------------------------
 # API: Balances
 # ---------------------------------------------------------------------------

@@ -3,27 +3,30 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BetUpset</title>
+<title>BETUPSET</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lekton:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #1a1a2e;
-    --panel: #16213e;
-    --header: #0f3460;
-    --border: #2a2a4a;
+    --bg: #191715;
+    --panel: #000000;
+    --header: #60540f;
+    --border: #3c3c3c;
     --text: #e0e0e0;
     --text-muted: #888;
     --green: #a8e6cf;
     --red: #ff8b94;
     --blue: #a8d8ea;
     --yellow: #ffd3b6;
-    --accent: #7c83fd;
+    --accent: #ffd3b6;
     --ui-font-size: 12px;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
-    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-family: 'Lekton', monospace;
     background: var(--bg);
     color: var(--text);
     font-size: var(--ui-font-size);
@@ -58,21 +61,18 @@
     color: var(--text);
     border: 1px solid var(--border);
     padding: 6px 14px;
-    border-radius: 6px;
-    cursor: pointer;
+    border-radius: 3px;
     font-size: var(--ui-font-size);
     font-family: inherit;
-    transition: background 0.15s;
+    box-shadow: inset 2px 2px 0 rgba(255,255,255,0.28), inset -2px -2px 0 rgba(0,0,0,0.3);
   }
-  .btn:hover { background: var(--accent); color: #fff; }
+  .btn:active { box-shadow: inset -2px -2px 0 rgba(255,255,255,0.28), inset 2px 2px 0 rgba(0,0,0,0.3); }
+  .btn:hover { border-color: #fff; }
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .btn-sm { padding: 3px 8px; font-size: var(--ui-font-size); }
   .btn-place { border-color: var(--green); color: var(--green); }
-  .btn-place:hover { background: var(--green); color: var(--bg); }
   .btn-del { border-color: var(--red); color: var(--red); }
-  .btn-del:hover { background: var(--red); color: var(--bg); }
-  .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-  .btn-primary:hover { background: #9098ff; }
+  .btn-primary { background: var(--accent); color: #000000; border-color: var(--accent); }
 
   /* ── Two-panel layout ────────────────────────────────────────── */
   .panels {
@@ -100,8 +100,8 @@
     justify-content: space-between;
     align-items: center;
   }
-  .panel:first-child .panel-header { color: var(--green); }
-  .panel:last-child  .panel-header { color: var(--blue); }
+  .panel:first-child .panel-header { color: #fff; }
+  .panel:last-child  .panel-header { color: #fff; }
 
   /* ── Balance bar (left panel) ────────────────────────────────── */
   #balances-bar {
@@ -143,10 +143,11 @@
   td:nth-child(1), th:nth-child(1),
   td:nth-child(2), th:nth-child(2) { text-align: left; }
 
+  td:nth-child(3), th:nth-child(3),
+  td:nth-child(4), th:nth-child(4),
+  td:nth-child(5), th:nth-child(5) { padding-left: 4px; padding-right: 4px; }
+
   .date-cell {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
     line-height: 1.25;
   }
 
@@ -393,7 +394,7 @@
           <th data-col="best_away" onclick="sortBets('best_away')">2 <span class="sa"></span></th>
           <th data-col="roi"       onclick="sortBets('roi')">ROI% <span class="sa"></span></th>
           <th data-col="stake"     onclick="sortBets('stake')">Stake <span class="sa"></span></th>
-          <th data-col="result"    onclick="sortBets('result')">Result <span class="sa"></span></th>
+          <th data-col="score"     onclick="sortBets('score')">Score <span class="sa"></span></th>
           <th></th>
         </tr></thead>
         <tbody id="bets-body"></tbody>
@@ -485,6 +486,18 @@
     <div class="modal-actions">
       <button class="btn" onclick="cancelBet()">Cancel</button>
       <button class="btn btn-primary" onclick="confirmBet()">Place Bet</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ Sell Modal ═══════════════ -->
+<div class="modal-overlay" id="sell-modal" onclick="closeSellModal(event)">
+  <div class="modal" onclick="event.stopPropagation()" style="max-width:360px">
+    <h2>Sell Position</h2>
+    <p id="sell-modal-desc" style="color:var(--text-muted);margin:12px 0 20px;line-height:1.5"></p>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeSellModal()">Cancel</button>
+      <button class="btn btn-primary" id="sell-confirm-btn" onclick="confirmSell()">Sell &amp; Remove</button>
     </div>
   </div>
 </div>
@@ -1084,6 +1097,45 @@ async function deleteBet(id) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Sell bet
+// ═══════════════════════════════════════════════════════════════
+let pendingSellId = null;
+
+function openSellModal(id) {
+  const b = bets.find(b => b.id === id);
+  if (!b) return;
+  pendingSellId = id;
+  const label = cap(b.home_team) + ' vs ' + cap(b.away_team);
+  document.getElementById('sell-modal-desc').textContent =
+    `Sell your position in "${label}"? This will place sell orders on the platform(s) and remove the record.`;
+  document.getElementById('sell-confirm-btn').disabled = false;
+  document.getElementById('sell-modal').classList.add('open');
+}
+
+function closeSellModal(e) {
+  if (e && e.target !== document.getElementById('sell-modal')) return;
+  document.getElementById('sell-modal').classList.remove('open');
+  pendingSellId = null;
+}
+
+async function confirmSell() {
+  if (!pendingSellId) return;
+  const id = pendingSellId;
+  document.getElementById('sell-confirm-btn').disabled = true;
+  try {
+    await api('POST', `/api/bets/${id}/sell`);
+    document.getElementById('sell-modal').classList.remove('open');
+    pendingSellId = null;
+    bets = bets.filter(b => b.id !== id);
+    syncBetsUi();
+    renderMatches();
+  } catch (e) {
+    alert('Sell failed: ' + e.message);
+    document.getElementById('sell-confirm-btn').disabled = false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Sorting
 // ═══════════════════════════════════════════════════════════════
 function getSortVal(row, col) {
@@ -1200,7 +1252,7 @@ function renderMatches() {
   }).join('');
 }
 
-function renderBetRows(arr, maxAbs) {
+function renderBetRows(arr, maxAbs, isPending = false) {
   return arr.map(b => {
     const label   = cap(b.home_team) + ' vs ' + cap(b.away_team);
     const display = label.length > 24 ? label.slice(0, 22) + '..' : label;
@@ -1244,8 +1296,19 @@ function renderBetRows(arr, maxAbs) {
       ${priceCell(b.best_away, 'away', b.rejected)}
       <td>${(b.roi * 100).toFixed(1)}%</td>
       <td>$${(b.stake || b.loss_if_reject || 0).toFixed(0)}</td>
-      <td><span class="${resCls}" style="cursor:pointer" title="Click to toggle" onclick="toggleResult(${b.id})">${resCell}</span></td>
-      <td><button class="btn btn-sm btn-del" onclick="deleteBet(${b.id})">✕</button></td>
+      <td>${(() => {
+        if (isPending) {
+          const st = Math.min((b.score || 0) / 10, 1);
+          const scoreColor = `rgb(${Math.round(210 - st*110)},${Math.round(100 + st*100)},${Math.round(100 + st*30)})`;
+          return `<span style="color:${scoreColor};font-weight:600">${(b.score || 0).toFixed(1)}</span>`;
+        }
+        return `<span class="${resCls}" style="cursor:pointer" title="Click to toggle" onclick="toggleResult(${b.id})">${resCell}</span>`;
+      })()}</td>
+      <td>${(() => {
+        const hasMarket = b.poly_market_id || b.kalshi_market_id;
+        if (isPending && hasMarket) return `<button class="btn btn-sm btn-del" onclick="openSellModal(${b.id})">Sell</button>`;
+        return `<button class="btn btn-sm btn-del" onclick="deleteBet(${b.id})">Del</button>`;
+      })()}</td>
     </tr>`;
   }).join('');
 }
@@ -1269,7 +1332,7 @@ function renderBets() {
   const empty  = document.getElementById('bets-empty');
   if (pending.length) {
     empty.style.display = 'none';
-    tbody.innerHTML = renderBetRows(pending, maxAbs);
+    tbody.innerHTML = renderBetRows(pending, maxAbs, true);
   } else {
     tbody.innerHTML = '';
     empty.style.display = 'block';

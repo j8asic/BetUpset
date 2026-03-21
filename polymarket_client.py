@@ -618,6 +618,23 @@ class PolymarketClient(PlatformClient):
             print(f"[Polymarket] Order failed: {e}")
             return None
 
+    def get_position(self, token_id: str) -> float:
+        """Return current shares held for a CLOB token. Returns 0.0 if none or error."""
+        try:
+            client = self._get_clob_client()
+            positions = client.get_positions(asset_id=token_id)
+            for pos in (positions or []):
+                if pos.get("asset_id") == token_id:
+                    return float(pos.get("size", 0))
+        except Exception as e:
+            print(f"[Polymarket] get_position error: {e}")
+        return 0.0
+
+    def sell_position(self, token_id: str, shares: float, price: float) -> bool:
+        """Place a SELL limit order for the given token. Returns True if order was accepted."""
+        order_id = self.place_order(token_id, "SELL", shares * price, price)
+        return order_id is not None
+
     def cancel_order(self, order_id: str) -> bool:
         """Cancel an open CLOB order. Returns True on success."""
         try:

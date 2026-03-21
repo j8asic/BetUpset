@@ -488,6 +488,56 @@ class KalshiClient(PlatformClient):
             print(f"[Kalshi] Order error: {e}")
         return None
 
+    def get_position(self, ticker: str, side: str = "yes") -> int:
+        """Return current contract count held for a market ticker. Returns 0 if none or error."""
+        path = "/trade-api/v2/portfolio/positions"
+        auth_headers = self._make_auth_headers("GET", path)
+        try:
+            self._rate_limit()
+            resp = self.session.get(
+                f"{self.BASE_URL}/portfolio/positions",
+                params={"ticker": ticker},
+                headers=auth_headers,
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                for pos in resp.json().get("market_positions", []):
+                    if pos.get("ticker") == ticker:
+                        return int(pos.get(f"{side}_position", 0))
+        except Exception as e:
+            print(f"[Kalshi] get_position error: {e}")
+        return 0
+
+    def sell_position(self, ticker: str, side: str, count: int, price_cents: int) -> bool:
+        """Place a SELL limit order on Kalshi. Returns True if order was accepted."""
+        if self._private_key is None:
+            print("[Kalshi] Cannot sell: no private key loaded")
+            return False
+        path = "/trade-api/v2/orders"
+        body = {
+            "ticker": ticker,
+            "side": side,
+            "action": "sell",
+            "count": count,
+            f"{side}_price": price_cents,
+            "time_in_force": "GTC",
+        }
+        auth_headers = self._make_auth_headers("POST", path)
+        try:
+            self._rate_limit()
+            resp = self.session.post(
+                f"{self.BASE_URL}/orders",
+                json=body,
+                headers=auth_headers,
+                timeout=15,
+            )
+            ok = resp.status_code in (200, 201)
+            print(f"[Kalshi] Sell {ticker} {side} x{count} @ {price_cents}¢: {'ok' if ok else resp.text[:200]}")
+            return ok
+        except Exception as e:
+            print(f"[Kalshi] Sell error: {e}")
+            return False
+
     def cancel_order(self, order_id: str) -> bool:
         """Cancel an open order. Returns True on success."""
         if self._private_key is None:
