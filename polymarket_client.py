@@ -214,15 +214,23 @@ class PolymarketClient(PlatformClient):
     # Polymarket tag slugs that correspond to Kalshi-covered soccer leagues.
     # Only these leagues can produce cross-platform arb — no point fetching the rest.
     SOCCER_TAGS = [
+        # Major European leagues
         "premier-league",        # EPL
         "la-liga",               # La Liga
         "sea",                   # Serie A
         "bundesliga",            # Bundesliga
         "ligue-1",               # Ligue 1
         "ere",                   # Eredivisie
+        # International club competitions
         "ucl",                   # UEFA Champions League
         "uel",                   # UEFA Europa League
         "uecl",                  # UEFA Conference League
+        # International tournaments
+        "fifa-world-cup",        # FIFA World Cup
+        # Domestic cups
+        "efl-cup",               # EFL Cup (Carabao Cup)
+        "copa-del-rey",          # Copa del Rey
+        # Global domestic leagues
         "efl-championship",      # EFL Championship
         "mls",                   # MLS
         "mex",                   # Liga MX
@@ -230,6 +238,8 @@ class PolymarketClient(PlatformClient):
         "primeira-liga",         # Primeira Liga (Liga Portugal)
         "denmark-superliga",     # Danish Superliga
         "scottish-premiership",  # Scottish Premiership
+        "chinese-super-league",  # Chinese Super League
+        "k-league",              # Korea K League
     ]
 
     def find_sports_markets(self) -> list[dict]:

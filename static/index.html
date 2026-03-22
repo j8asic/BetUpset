@@ -231,21 +231,8 @@
 
   .modal h2 {
     font-size: var(--ui-font-size); font-weight: 600; color: var(--blue);
-    margin-bottom: 20px; letter-spacing: 0.5px;
+    margin-bottom: 24px; letter-spacing: 0.5px;
   }
-
-  .modal-info {
-    display: grid; grid-template-columns: 1fr 1fr;
-    gap: 10px; margin-bottom: 20px;
-  }
-
-  .modal-stat {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 8px; padding: 10px 14px;
-  }
-  .modal-stat .s-label { color: var(--text-muted); font-size: var(--ui-font-size); margin-bottom: 3px; }
-  .modal-stat .s-value { font-weight: 600; font-size: var(--ui-font-size); }
 
   .modal-slider-row { margin-bottom: 22px; }
   .slider-header {
@@ -427,25 +414,6 @@
   <div class="modal" onclick="event.stopPropagation()">
     <h2 id="modal-title">Place Bet</h2>
 
-    <div class="modal-info">
-      <div class="modal-stat">
-        <div class="s-label">Polymarket Volume</div>
-        <div class="s-value" id="modal-poly-vol">—</div>
-      </div>
-      <div class="modal-stat">
-        <div class="s-label">Kalshi Volume</div>
-        <div class="s-value" id="modal-kalshi-vol">—</div>
-      </div>
-      <div class="modal-stat">
-        <div class="s-label">Your Polymarket</div>
-        <div class="s-value" id="modal-poly-bal">—</div>
-      </div>
-      <div class="modal-stat">
-        <div class="s-label">Your Kalshi</div>
-        <div class="s-value" id="modal-kalshi-bal">—</div>
-      </div>
-    </div>
-
     <div class="modal-slider-row">
       <div class="slider-header">
         <span>Stake</span>
@@ -461,8 +429,7 @@
 
     <div class="modal-projected">
       <div>
-        <div class="proj-label">Profit if covered outcome wins</div>
-        <div class="proj-risk" id="modal-risk">Risk: $0 if rejected wins</div>
+        <div class="proj-label">Potential Profit</div>
       </div>
       <div class="proj-win" id="modal-profit">+$0</div>
     </div>
@@ -840,23 +807,58 @@ async function doResolve() {
 // ═══════════════════════════════════════════════════════════════
 const BASE_STAKE = 100;  // base stake used in compute_match_rows
 
-function openBetModal(idx) {
-  const m = matches[idx];
+async function openBetModal(idx) {
+  let m = matches[idx];
   if (!m) return;
+  
+  // Check for stale price (older than 15s) and refresh if needed
+  const nowSec = Date.now() / 1000;
+  if (lastScannedAt > 0 && (nowSec - lastScannedAt) > 15) {
+    document.getElementById('modal-title').textContent = "Refreshing live prices...";
+    document.getElementById('bet-slider').value = 10;
+    document.getElementById('slider-display').textContent = "...";
+    document.getElementById('modal-profit').textContent = "...";
+    document.getElementById('modal-risk').textContent = "";
+    document.getElementById('bet-modal').classList.add('open');
+    
+    // Prevent actions while refreshing
+    const btn = document.querySelector('.modal-actions .btn-primary');
+    if (btn) btn.disabled = true;
+    
+    try {
+      const resp = await fetch('/api/match/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...m, scanned_at: nowSec })
+      });
+      
+      if (btn) btn.disabled = false;
+      if (!document.getElementById('bet-modal').classList.contains('open')) return;
+      
+      if (!resp.ok) {
+        let msg = `${resp.status} ${resp.statusText}`;
+        try { const d = await resp.json(); if (d.detail) msg = d.detail; } catch (e) {}
+        alert("Refresh failed: " + msg);
+        closeModal();
+        return;
+      }
+      
+      const updatedMatch = await resp.json();
+      matches[idx] = updatedMatch;
+      m = updatedMatch;
+      renderMatches(); // Reflect updated UI in the table
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      alert("Refresh failed: " + err.message);
+      closeModal();
+      return;
+    }
+  }
+
   pendingMatchIdx = idx;
 
   document.getElementById('modal-title').textContent =
     `Place Bet — ${cap(m.home_team)} vs ${cap(m.away_team)}`;
-
-  // Volumes (total across all outcomes)
-  const fmtVol = v => v > 0 ? `$${Number(v).toLocaleString('en', {maximumFractionDigits:0})}` : 'N/A';
-  document.getElementById('modal-poly-vol').textContent   = fmtVol(m.poly_volume   || 0);
-  document.getElementById('modal-kalshi-vol').textContent = fmtVol(m.kalshi_volume || 0);
-
-  // Balances
-  const fmtBal = v => v != null ? `$${v.toFixed(2)}` : 'N/A';
-  document.getElementById('modal-poly-bal').textContent   = fmtBal(balances.polymarket);
-  document.getElementById('modal-kalshi-bal').textContent = fmtBal(balances.kalshi);
 
   // ── Compute correct slider max ──────────────────────────────
   // Constraint 1: balance per platform
@@ -883,17 +885,19 @@ function openBetModal(idx) {
   if (executionPolicy?.max_stake_per_trade > 0) {
     sliderMax = Math.min(sliderMax, Math.floor(executionPolicy.max_stake_per_trade));
   }
-  sliderMax = Math.max(sliderMax, 10);  // floor at $10 (Polymarket min 5 shares needs enough stake)
+  
+  // Minimum constraint: At least $10, and enough for 5 Polymarket shares
+  const costPerShare = m.price_a + m.price_b;
+  const minSliderVal = Math.max(10, Math.ceil(5 * costPerShare));
+  sliderMax = Math.max(sliderMax, minSliderVal);
 
-  // Default = Kelly-lite: balance * roi * win_prob * 2
-  const totalBalance = (polyBal || 0) + (kalshiBal || 0);
-  const defaultStake = totalBalance > 0
-    ? Math.min(sliderMax, Math.max(10, Math.round(totalBalance * m.roi * m.win_prob * 2)))
-    : Math.min(sliderMax, Math.max(10, Math.round(sliderMax * 0.1)));
+  // Default is based on the match SCORE (0-10) mapping linearly from min to max
+  const scoreRatio = Math.max(0, Math.min(10, m.score)) / 10;
+  const defaultStake = Math.round(minSliderVal + (sliderMax - minSliderVal) * scoreRatio);
 
   const slider = document.getElementById('bet-slider');
   slider.max   = sliderMax;
-  slider.min   = 10;
+  slider.min   = minSliderVal;
   slider.value = Math.min(defaultStake, sliderMax);
   document.getElementById('slider-max-label').textContent = `$${sliderMax}`;
 
@@ -921,7 +925,6 @@ function onSliderChange(val) {
   const profit = shares * (1 - costPerShare);
   const risk   = actualCost;
   document.getElementById('modal-profit').textContent = `+$${profit.toFixed(2)}`;
-  document.getElementById('modal-risk').textContent   = `Risk: $${risk.toFixed(2)} if ${m.rejected} wins`;
 
   // ── Per-platform allocation breakdown ──────────────────────
   const polySF   = m.poly_stake_fraction   || 0;

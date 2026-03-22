@@ -226,26 +226,40 @@ class KalshiClient(PlatformClient):
     # Known Kalshi series tickers for soccer match-winner markets.
     # Each series contains 3-way events (Home / Tie / Away).
     SOCCER_SERIES = [
+        # Major European leagues
         "KXEPLGAME",              # English Premier League
         "KXLALIGAGAME",           # La Liga
         "KXSERIEAGAME",           # Serie A
         "KXBUNDESLIGAGAME",       # Bundesliga
         "KXLIGUE1GAME",           # Ligue 1
         "KXEREDIVISIEGAME",       # Eredivisie
+        # International club competitions
         "KXUCLGAME",              # UEFA Champions League
         "KXUELGAME",              # UEFA Europa League
         "KXUECLGAME",             # UEFA Conference League
+        "KXUEFAGAME",             # Generic UEFA games
+        "KXAFCCLGAME",            # AFC Champions League
+        "KXCONCACAFCCUPGAME",     # CONCACAF Champions Cup
+        # International tournaments
+        "KXWCGAME",               # FIFA World Cup
+        "KXINTLFRIENDLYGAME",     # International Friendlies
+        # Domestic cups
+        "KXEFLCUPGAME",           # EFL Cup (Carabao Cup)
+        "KXCOPADELREYGAME",       # Copa del Rey
+        # Global domestic leagues
         "KXMLSGAME",              # MLS
         "KXLIGAMXGAME",           # Liga MX
         "KXBRASILEIROGAME",       # Brasileiro Serie A
         "KXLIGAPORTUGALGAME",     # Liga Portugal
-        "KXCOPADELREYGAME",       # Copa del Rey
         "KXSCOTTISHPREMGAME",     # Scottish Premiership
         "KXEFLCHAMPIONSHIPGAME",  # EFL Championship
         "KXDANISHSUPERLIGAGAME",  # Danish Superliga
-        "KXUEFAGAME",             # Generic UEFA games
-        "KXAFCCLGAME",            # AFC Champions League
-        "KXCONCACAFCCUPGAME",     # CONCACAF Champions Cup
+        "KXSUPERLIGGAME",         # Turkish Super Lig
+        "KXCHNSLGAME",            # Chinese Super League
+        "KXDIMAYORGAME",          # Colombian Liga DIMAYOR
+        "KXCHLLDPGAME",           # Chile Liga de Primera
+        "KXPERLIGA1GAME",         # Peru Liga 1
+        "KXKLEAGUEGAME",          # Korea K League
     ]
 
     # Map series ticker prefix to league name for display
@@ -259,17 +273,26 @@ class KalshiClient(PlatformClient):
         "KXUCLGAME": "UCL",
         "KXUELGAME": "Europa League",
         "KXUECLGAME": "Conference League",
+        "KXUEFAGAME": "UEFA",
+        "KXAFCCLGAME": "AFC CL",
+        "KXCONCACAFCCUPGAME": "CONCACAF",
+        "KXWCGAME": "World Cup",
+        "KXINTLFRIENDLYGAME": "Intl Friendlies",
+        "KXEFLCUPGAME": "EFL Cup",
+        "KXCOPADELREYGAME": "Copa del Rey",
         "KXMLSGAME": "MLS",
         "KXLIGAMXGAME": "Liga MX",
         "KXBRASILEIROGAME": "Brasileiro",
         "KXLIGAPORTUGALGAME": "Liga Portugal",
-        "KXCOPADELREYGAME": "Copa del Rey",
         "KXSCOTTISHPREMGAME": "Scottish Prem",
         "KXEFLCHAMPIONSHIPGAME": "EFL Championship",
         "KXDANISHSUPERLIGAGAME": "Danish Superliga",
-        "KXUEFAGAME": "UEFA",
-        "KXAFCCLGAME": "AFC CL",
-        "KXCONCACAFCCUPGAME": "CONCACAF",
+        "KXSUPERLIGGAME": "Super Lig",
+        "KXCHNSLGAME": "Chinese Super League",
+        "KXDIMAYORGAME": "Liga DIMAYOR",
+        "KXCHLLDPGAME": "Chile Primera",
+        "KXPERLIGA1GAME": "Peru Liga 1",
+        "KXKLEAGUEGAME": "K League",
     }
 
     def _markets_to_normalized_match(

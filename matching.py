@@ -119,17 +119,32 @@ ALIAS_GROUPS = [
     ["benfica", "sl benfica"],
     ["porto", "fc porto"],
 
-    # Turkey
+    # Turkey - Super Lig
     ["galatasaray", "galatasaray sk"],
     ["fenerbahce", "fenerbahçe", "fenerbahce sk"],
     ["besiktas", "beşiktaş", "besiktas jk"],
+    ["trabzonspor", "trabzonspor fk"],
+    ["basaksehir", "istanbul basaksehir", "başakşehir"],
 
     # Scotland
     ["celtic", "celtic fc", "celtic glasgow"],
     ["rangers", "rangers fc", "glasgow rangers"],
 
+    # South Korea - K League
+    ["jeonbuk hyundai motors", "jeonbuk", "jeonbuk motors"],
+    ["ulsan hd", "ulsan hyundai", "ulsan"],
+    ["pohang steelers", "pohang"],
+    ["fc seoul", "seoul"],
+
+    # China - Chinese Super League
+    ["shanghai port", "shanghai port fc"],
+    ["shanghai shenhua", "shenhua"],
+    ["shandong taishan", "shandong luneng", "shandong"],
+    ["beijing guoan", "beijing"],
+
     # International
     ["united states", "usa", "usmnt"],
+    ["south korea", "korea republic", "korea"],
 ]
 
 # Build lookup: any variant → canonical name (first in group)

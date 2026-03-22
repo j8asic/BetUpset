@@ -465,6 +465,73 @@ class PlaceBetRequest(BaseModel):
     scanned_at: float = 0.0
 
 
+@app.post("/api/match/refresh")
+async def match_refresh(request: Request, req: PlaceBetRequest):
+    """Fast refresh of prices for a specific match from CLOB/orderbooks."""
+    _require_auth(request)
+    data = req.model_dump()
+
+    try:
+        clients = await asyncio.to_thread(_get_platform_clients)
+        kalshi = clients.get("kalshi")
+        poly = clients.get("polymarket")
+    except Exception as e:
+        raise HTTPException(500, f"Client init failed: {e}")
+
+    def fetch_price_sync(platform_name, outcome):
+        if platform_name == "kalshi" and kalshi:
+            try:
+                kalshi_ids = json.loads(data.get("kalshi_market_id", "{}") or "{}")
+                ticker = kalshi_ids.get(outcome)
+                if ticker:
+                    resp = kalshi._get(f"/markets/{ticker}")
+                    if resp and "market" in resp:
+                        price = kalshi._extract_dollar_price(resp["market"])
+                        if price:
+                            return price
+            except Exception:
+                pass
+        elif platform_name == "polymarket" and poly:
+            try:
+                poly_ids = json.loads(data.get("poly_market_id", "{}") or "{}")
+                clob_tokens = poly_ids.get("_clob_tokens", {})
+                token_id = clob_tokens.get(outcome)
+                if token_id:
+                    import requests
+                    resp = requests.get(f"https://clob.polymarket.com/book?market={token_id}", timeout=5)
+                    if resp.status_code == 200:
+                        asks = resp.json().get("asks", [])
+                        if asks:
+                            asks.sort(key=lambda x: float(x.get("price", "1")))
+                            return float(asks[0]["price"])
+            except Exception:
+                pass
+        return None
+
+    price_a_val = await asyncio.to_thread(fetch_price_sync, data.get("platform_a"), data.get("covered_a"))
+    price_b_val = await asyncio.to_thread(fetch_price_sync, data.get("platform_b"), data.get("covered_b"))
+
+    if price_a_val is not None:
+        data["price_a"] = round(price_a_val, 4)
+    if price_b_val is not None:
+        data["price_b"] = round(price_b_val, 4)
+
+    cost = data["price_a"] + data["price_b"]
+    if cost >= 1.0 or cost <= 0:
+        raise HTTPException(409, "Opportunity is no longer profitable (cost >= 1.0) or invalid prices.")
+
+    data["roi"] = round((1.0 - cost) / cost, 4)
+    data["profit_if_win"] = round((100.0 / cost) * (1.0 - cost), 2)
+    
+    # Recompute stake fractions
+    poly_cost = data["price_a"] if data["platform_a"] == "polymarket" else (data["price_b"] if data["platform_b"] == "polymarket" else 0.0)
+    kalshi_cost = data["price_a"] if data["platform_a"] == "kalshi" else (data["price_b"] if data["platform_b"] == "kalshi" else 0.0)
+    data["poly_stake_fraction"] = round(poly_cost / cost, 4) if cost > 0 else 0.0
+    data["kalshi_stake_fraction"] = round(kalshi_cost / cost, 4) if cost > 0 else 0.0
+
+    return data
+
+
 @app.get("/api/bets")
 async def bets_list(request: Request):
     _require_auth(request)
