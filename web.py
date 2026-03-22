@@ -535,7 +535,14 @@ def _place_orders(bet: dict) -> dict:
     if not covered_a or not covered_b or not stake or not (price_a + price_b):
         return {}
 
-    shares = max(5, int(stake / (price_a + price_b)))  # Polymarket minimum order size is 5
+    # Both legs need equal shares for the hedge to work (each share pays $1 on win).
+    # Round to nearest integer (both platforms need int), but don't exceed stake.
+    cost_per_share = price_a + price_b
+    ideal_shares = stake / cost_per_share
+    shares = round(ideal_shares)
+    if shares * cost_per_share > stake:
+        shares = int(ideal_shares)  # fall back to floor if rounding up exceeds budget
+    shares = max(5, shares)  # Polymarket minimum order size is 5
 
     try:
         clients = _get_platform_clients()

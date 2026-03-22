@@ -906,20 +906,28 @@ function onSliderChange(val) {
   if (!m) return;
   val = Number(val);
   const liqFraction = executionPolicy?.max_liquidity_fraction ?? 0.05;
-  document.getElementById('slider-display').textContent = `$${val}`;
 
-  // Scale profit/risk proportionally from the base $100 stake
-  const scale  = val / BASE_STAKE;
-  const profit = m.profit_if_win  * scale;
-  const risk   = m.loss_if_reject * scale;
+  // Compute actual integer shares and real cost (mirrors server-side _place_orders logic)
+  const costPerShare = m.price_a + m.price_b;
+  const idealShares = val / costPerShare;
+  let shares = Math.round(idealShares);
+  if (shares * costPerShare > val) shares = Math.floor(idealShares);
+  shares = Math.max(5, shares);
+  const actualCost = shares * costPerShare;
+
+  document.getElementById('slider-display').textContent = `$${actualCost.toFixed(2)} (${shares} shares)`;
+
+  // Scale profit/risk from actual shares
+  const profit = shares * (1 - costPerShare);
+  const risk   = actualCost;
   document.getElementById('modal-profit').textContent = `+$${profit.toFixed(2)}`;
   document.getElementById('modal-risk').textContent   = `Risk: $${risk.toFixed(2)} if ${m.rejected} wins`;
 
   // ── Per-platform allocation breakdown ──────────────────────
   const polySF   = m.poly_stake_fraction   || 0;
   const kalshiSF = m.kalshi_stake_fraction || 0;
-  const polyAmt   = val * polySF;
-  const kalshiAmt = val * kalshiSF;
+  const polyAmt   = actualCost * polySF;
+  const kalshiAmt = actualCost * kalshiSF;
 
   // Which outcomes go to each platform
   const polyOutcomes   = [];

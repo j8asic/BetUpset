@@ -497,12 +497,27 @@ class PolymarketClient(PlatformClient):
 
         # Try to extract kickoff from event data
         kickoff = None
-        end_date = markets[0].get("endDate") or markets[0].get("end_date_iso")
-        if end_date:
+        # Polymarket often provides the exact kickoff time in gameStartTime
+        game_start = markets[0].get("gameStartTime")
+        if game_start:
             try:
-                kickoff = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+                # Format is usually "YYYY-MM-DD HH:MM:SS+00"
+                if game_start.endswith("+00") and len(game_start) > 3 and game_start[-3] == "+":
+                    game_start = game_start[:-3] + "+00:00"
+                game_start = game_start.replace(" ", "T")
+                kickoff = datetime.fromisoformat(game_start)
             except (ValueError, TypeError):
                 pass
+        
+        if not kickoff:
+            end_date = markets[0].get("endDate") or markets[0].get("end_date_iso")
+            if end_date:
+                try:
+                    from datetime import timedelta
+                    # endDate is often the settlement time (~2 hours after kickoff)
+                    kickoff = datetime.fromisoformat(end_date.replace("Z", "+00:00")) - timedelta(hours=2)
+                except (ValueError, TypeError):
+                    pass
 
         # Snapshot and serve pre-kickoff reference prices
         event_slug = markets[0].get("event_slug") or markets[0].get("slug", "")

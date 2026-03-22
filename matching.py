@@ -369,9 +369,12 @@ def group_matches_by_event(
 
         if found_key:
             groups[found_key].platform_data[match.platform] = match
-            # Prefer Kalshi kickoff: Polymarket endDate can be extended during live games,
-            # while Kalshi expected_expiration_time reflects the actual match start time.
-            if match.platform == "kalshi" and match.kickoff:
+            # Prefer Polymarket kickoff since it natively provides precise gameStartTime,
+            # whereas Kalshi often guesses by subtracting 2 hours from expected expiration.
+            if match.platform == "polymarket" and match.kickoff:
+                groups[found_key].kickoff = match.kickoff
+            # Fallback to kalshi only if we don't already have a valid kickoff
+            elif match.platform == "kalshi" and match.kickoff and not groups[found_key].kickoff:
                 groups[found_key].kickoff = match.kickoff
             continue
 
