@@ -9,19 +9,21 @@ from datetime import datetime
 from typing import Optional
 
 from platform_base import ArbOpportunity, RiskDecision
-from config import RiskConfig, BankrollConfig
+from config import RiskConfig
 
 
 class RiskManager:
     """Evaluates trades against risk limits before execution."""
 
-    def __init__(self, risk_config: RiskConfig, bankroll_config: BankrollConfig):
+    def __init__(self, risk_config: RiskConfig):
         self.config = risk_config
-        self.starting_bankroll = bankroll_config.starting
-        self.current_bankroll = bankroll_config.starting
+        self.current_bankroll: float = 0.0
+        self.starting_bankroll: Optional[float] = None
 
     def update_bankroll(self, bankroll: float):
-        """Update the current bankroll after trades settle."""
+        """Update current balance from live platform data."""
+        if self.starting_bankroll is None:
+            self.starting_bankroll = bankroll
         self.current_bankroll = bankroll
 
     def check_trade(
@@ -40,6 +42,8 @@ class RiskManager:
             RiskDecision with approved/rejected and reason
         """
         # 1. Stop-loss: pause if bankroll dropped too much
+        if self.starting_bankroll is None or self.current_bankroll == 0:
+            return RiskDecision(approved=False, reason="Bankroll not yet initialised — call update_bankroll() first")
         drawdown = (self.starting_bankroll - self.current_bankroll) / self.starting_bankroll
         if drawdown >= self.config.stop_loss_pct:
             return RiskDecision(

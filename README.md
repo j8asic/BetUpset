@@ -65,9 +65,9 @@ Controls when the scanner considers an opportunity worth surfacing.
 | Key | Default | Description |
 |-----|---------|-------------|
 | `strategy.min_gap` | `0.03` | Minimum price gap (3 cents) to consider a trade |
-| `strategy.max_reject_prob` | `0.15` | Never reject an outcome above 15% implied probability |
+| `strategy.max_reject_prob` | `0.25` | Never reject an outcome above 15% implied probability |
 | `strategy.safety_factor` | `0.60` | Only enter if reject probability < gap × safety factor |
-| `strategy.bet_fraction` | `0.02` | Risk 2% of current bankroll per trade |
+| `strategy.bet_fraction` | `0.10` | Risk 10% of current bankroll per trade |
 
 ### Risk Limits
 
@@ -75,7 +75,7 @@ Hard caps that prevent over-exposure regardless of what the strategy suggests.
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `risk.max_exposure_per_match` | `500` | Max USD on any single match |
+| `risk.max_exposure_per_match` | `50` | Max USD on any single match |
 | `risk.max_total_exposure` | `3000` | Max USD across all open trades |
 | `risk.stop_loss_pct` | `0.20` | Pause trading if bankroll drops 20% from starting value |
 | `risk.max_matchday_exposure_pct` | `0.15` | Max 15% of bankroll on any single matchday |

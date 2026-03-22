@@ -6,6 +6,8 @@ groups them by match using fuzzy team name matching, and produces
 CrossPlatformMatch objects ready for the detector.
 """
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from platform_base import PlatformClient, NormalizedMatch, CrossPlatformMatch
 from matching import group_matches_by_event
 
@@ -25,14 +27,19 @@ class Scanner:
         """
         all_matches: list[NormalizedMatch] = []
 
-        for platform in self.platforms:
-            try:
-                print(f"[Scanner] Fetching from {platform.name}...")
-                matches = platform.fetch_soccer_markets()
-                all_matches.extend(matches)
-                print(f"[Scanner] {platform.name}: {len(matches)} markets")
-            except Exception as e:
-                print(f"[Scanner] Error fetching from {platform.name}: {e}")
+        def fetch(platform: PlatformClient) -> list[NormalizedMatch]:
+            print(f"[Scanner] Fetching from {platform.name}...")
+            result = platform.fetch_soccer_markets()
+            print(f"[Scanner] {platform.name}: {len(result)} markets")
+            return result
+
+        with ThreadPoolExecutor(max_workers=len(self.platforms)) as ex:
+            futures = {ex.submit(fetch, p): p for p in self.platforms}
+            for future in as_completed(futures):
+                try:
+                    all_matches.extend(future.result())
+                except Exception as e:
+                    print(f"[Scanner] Error fetching from {futures[future].name}: {e}")
 
         if not all_matches:
             print("[Scanner] No matches found from any platform")

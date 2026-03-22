@@ -203,8 +203,13 @@ def compute_match_rows(
     return rows, len(cross_matches)
 
 
+_platforms: list | None = None  # singleton — reused across scans so caches persist
+
+
 def run_scan(demo: bool = False) -> tuple[list[MatchRow], int]:
     """Run the shared scanner pipeline."""
+    global _platforms
+
     from config import load_config
     from main import initialize_platforms, generate_demo_matches
     from scanner import Scanner
@@ -214,10 +219,11 @@ def run_scan(demo: bool = False) -> tuple[list[MatchRow], int]:
     if demo:
         matches = generate_demo_matches()
     else:
-        platforms = initialize_platforms(config)
-        if not platforms:
+        if _platforms is None:
+            _platforms = initialize_platforms(config)
+        if not _platforms:
             return [], 0
-        scanner = Scanner(platforms)
+        scanner = Scanner(_platforms)
         matches = scanner.scan()
 
     return compute_match_rows(matches, config.strategy)

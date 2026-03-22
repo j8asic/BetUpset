@@ -36,18 +36,10 @@ class RiskConfig:
     max_matchday_exposure_pct: float = 0.15
 
 
-@dataclass
-class BankrollConfig:
-    starting: float = 10000.0
-
 
 @dataclass
 class ScannerConfig:
     interval_seconds: int = 60
-    leagues: list[str] = field(default_factory=lambda: [
-        "premier-league", "la-liga", "champions-league",
-        "serie-a", "bundesliga", "ligue-1",
-    ])
 
 
 @dataclass
@@ -82,7 +74,6 @@ class OutputConfig:
 class AppConfig:
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
-    bankroll: BankrollConfig = field(default_factory=BankrollConfig)
     scanner: ScannerConfig = field(default_factory=ScannerConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     platforms: dict[str, PlatformConfig] = field(default_factory=dict)
@@ -159,18 +150,11 @@ def load_config(path: str = "config.yaml") -> AppConfig:
             max_matchday_exposure_pct=r.get("max_matchday_exposure_pct", 0.15),
         )
 
-    # Bankroll
-    if "bankroll" in raw:
-        config.bankroll = BankrollConfig(
-            starting=raw["bankroll"].get("starting", 10000),
-        )
-
     # Scanner
     if "scanner" in raw:
         sc = raw["scanner"]
         config.scanner = ScannerConfig(
             interval_seconds=sc.get("interval_seconds", 60),
-            leagues=sc.get("leagues", config.scanner.leagues),
         )
 
     # Execution

@@ -16,8 +16,10 @@ Base URL: https://api.elections.kalshi.com/trade-api/v2
 import json
 import os
 import re
+import threading
 import time
 from base64 import b64encode
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Optional
 
@@ -54,6 +56,7 @@ class KalshiClient(PlatformClient):
 
         self._last_request_time = 0
         self._min_request_interval = 0.25  # Rate limit (stay under Kalshi's ~10 req/s)
+        self._rate_lock = threading.Lock()  # Serialise concurrent thread access to rate limiter
         self._token: Optional[str] = None
         self._token_expiry: float = 0
         self._private_key = None
@@ -76,43 +79,42 @@ class KalshiClient(PlatformClient):
 
         Strategy: batch-fetch markets per series (includes dollar prices),
         group by event_ticker, and normalize into NormalizedMatch objects.
-        This avoids per-market orderbook calls.
+        All 19 series are fetched concurrently to minimise wall-clock time.
         """
-        # Collect all markets across soccer series
         all_markets: dict[str, list[dict]] = {}  # event_ticker -> [markets]
 
-        # Pre-fetch series slugs for building browse URLs
-        self._series_slugs: dict[str, str] = {}
-        for series in self.SOCCER_SERIES:
-            sdata = self._get(f"/series/{series}")
-            if sdata and "series" in sdata:
-                title = sdata["series"].get("title", "")
-                self._series_slugs[series] = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
-
-        for series in self.SOCCER_SERIES:
+        def fetch_series(series: str) -> dict[str, list[dict]]:
+            series_markets: dict[str, list[dict]] = {}
             cursor = None
             while True:
-                params = {
+                params: dict = {
                     "series_ticker": series,
                     "status": "open",
                     "limit": 200,
                 }
                 if cursor:
                     params["cursor"] = cursor
-
                 data = self._get("/markets", params=params)
                 if not data or "markets" not in data:
                     break
-
                 for m in data["markets"]:
                     event_ticker = m.get("event_ticker", "")
                     if event_ticker:
                         m["_series_ticker"] = series
-                        all_markets.setdefault(event_ticker, []).append(m)
-
+                        series_markets.setdefault(event_ticker, []).append(m)
                 cursor = data.get("cursor")
                 if not cursor or len(data["markets"]) < 200:
                     break
+            return series_markets
+
+        with ThreadPoolExecutor(max_workers=len(self.SOCCER_SERIES)) as ex:
+            futures = {ex.submit(fetch_series, s): s for s in self.SOCCER_SERIES}
+            for future in as_completed(futures):
+                try:
+                    for event_ticker, markets in future.result().items():
+                        all_markets.setdefault(event_ticker, []).extend(markets)
+                except Exception as e:
+                    print(f"[Kalshi] Error fetching series {futures[future]}: {e}")
 
         print(f"[Kalshi] Found {len(all_markets)} soccer events")
 
@@ -194,11 +196,12 @@ class KalshiClient(PlatformClient):
     # ================================================================
 
     def _rate_limit(self):
-        """Ensure we don't exceed rate limits."""
-        elapsed = time.time() - self._last_request_time
-        if elapsed < self._min_request_interval:
-            time.sleep(self._min_request_interval - elapsed)
-        self._last_request_time = time.time()
+        """Ensure we don't exceed rate limits. Thread-safe: serialises concurrent callers."""
+        with self._rate_lock:
+            elapsed = time.time() - self._last_request_time
+            if elapsed < self._min_request_interval:
+                time.sleep(self._min_request_interval - elapsed)
+            self._last_request_time = time.time()
 
     def _get(self, endpoint: str, params: Optional[dict] = None) -> Optional[dict]:
         """Make a GET request to the Kalshi API."""
@@ -223,25 +226,26 @@ class KalshiClient(PlatformClient):
     # Known Kalshi series tickers for soccer match-winner markets.
     # Each series contains 3-way events (Home / Tie / Away).
     SOCCER_SERIES = [
-        "KXEPLGAME",          # English Premier League
-        "KXLALIGAGAME",       # La Liga
-        "KXSERIEAGAME",       # Serie A
-        "KXBUNDESLIGAGAME",   # Bundesliga
-        "KXLIGUE1GAME",       # Ligue 1
-        "KXUCLGAME",          # UEFA Champions League
-        "KXUELGAME",          # UEFA Europa League
-        "KXUECLGAME",         # UEFA Conference League
-        "KXMLSGAME",          # MLS
-        "KXLIGAMXGAME",       # Liga MX
-        "KXBRASILEIROGAME",   # Brasileiro Serie A
-        "KXLIGAPORTUGALGAME", # Liga Portugal
-        "KXCOPADELREYGAME",   # Copa del Rey
-        "KXSCOTTISHPREMGAME", # Scottish Premiership
+        "KXEPLGAME",              # English Premier League
+        "KXLALIGAGAME",           # La Liga
+        "KXSERIEAGAME",           # Serie A
+        "KXBUNDESLIGAGAME",       # Bundesliga
+        "KXLIGUE1GAME",           # Ligue 1
+        "KXEREDIVISIEGAME",       # Eredivisie
+        "KXUCLGAME",              # UEFA Champions League
+        "KXUELGAME",              # UEFA Europa League
+        "KXUECLGAME",             # UEFA Conference League
+        "KXMLSGAME",              # MLS
+        "KXLIGAMXGAME",           # Liga MX
+        "KXBRASILEIROGAME",       # Brasileiro Serie A
+        "KXLIGAPORTUGALGAME",     # Liga Portugal
+        "KXCOPADELREYGAME",       # Copa del Rey
+        "KXSCOTTISHPREMGAME",     # Scottish Premiership
         "KXEFLCHAMPIONSHIPGAME",  # EFL Championship
         "KXDANISHSUPERLIGAGAME",  # Danish Superliga
-        "KXUEFAGAME",         # Generic UEFA games
-        "KXAFCCLGAME",        # AFC Champions League
-        "KXCONCACAFCCUPGAME", # CONCACAF Champions Cup
+        "KXUEFAGAME",             # Generic UEFA games
+        "KXAFCCLGAME",            # AFC Champions League
+        "KXCONCACAFCCUPGAME",     # CONCACAF Champions Cup
     ]
 
     # Map series ticker prefix to league name for display
@@ -251,6 +255,7 @@ class KalshiClient(PlatformClient):
         "KXSERIEAGAME": "Serie A",
         "KXBUNDESLIGAGAME": "Bundesliga",
         "KXLIGUE1GAME": "Ligue 1",
+        "KXEREDIVISIEGAME": "Eredivisie",
         "KXUCLGAME": "UCL",
         "KXUELGAME": "Europa League",
         "KXUECLGAME": "Conference League",
@@ -345,9 +350,7 @@ class KalshiClient(PlatformClient):
                 **market_ids,
                 "_event_ticker": event_ticker,
                 "_series_ticker": markets[0].get("_series_ticker", ""),
-                "_series_slug": self._series_slugs.get(
-                    markets[0].get("_series_ticker", ""), ""
-                ),
+                "_series_slug": markets[0].get("_series_ticker", "").lower(),
             }),
             home_team=home_raw,
             away_team=away_raw,

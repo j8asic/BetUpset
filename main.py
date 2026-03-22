@@ -224,7 +224,6 @@ def main():
     print("  Strategy: Two-way cover, reject lowest outcome")
     print("=" * 60)
     print()
-    print(f"  Bankroll:        ${config.bankroll.starting:,.2f}")
     print(f"  Bet fraction:    {config.strategy.bet_fraction:.0%}")
     print(f"  Min gap:         ${config.strategy.min_gap}")
     print(f"  Max reject prob: {config.strategy.max_reject_prob:.0%}")
@@ -239,7 +238,7 @@ def main():
     print()
 
     scanner = Scanner(platforms)
-    risk_mgr = RiskManager(config.risk, config.bankroll)
+    risk_mgr = RiskManager(config.risk)
     tracker = PortfolioTracker(
         db_path=config.output.db_path,
         csv_path=config.output.csv_path,
@@ -260,6 +259,13 @@ def main():
             print(f"{'=' * 40}")
 
             try:
+                # Refresh live balance before each scan
+                balances = [p.get_balance() or 0.0 for p in platforms]
+                total_balance = sum(balances)
+                if total_balance > 0:
+                    risk_mgr.update_bankroll(total_balance)
+                    print(f"  Balance: ${total_balance:,.2f}")
+
                 found = run_scan(
                     scanner, config, tracker, risk_mgr, alert_mgr,
                     mode=args.mode, demo=args.demo,

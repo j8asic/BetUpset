@@ -8,7 +8,9 @@ which requires wallet auth (Ethereum private key + API key).
 
 import json
 import re
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -35,7 +37,9 @@ class PolymarketClient(PlatformClient):
         })
         self._last_request_time = 0
         self._min_request_interval = 0.5  # Rate limit: 2 requests per second
+        self._rate_lock = threading.Lock()  # Serialise concurrent thread access to rate limiter
         self._credentials = credentials or {}
+        self._pre_kickoff_cache: dict[str, float] = {}  # token_id → price (immutable after kickoff)
 
     # ================================================================
     # PlatformClient interface
@@ -98,10 +102,11 @@ class PolymarketClient(PlatformClient):
     # ================================================================
 
     def _rate_limit(self):
-        """Ensure we don't exceed rate limits."""
-        elapsed = time.time() - self._last_request_time
-        if elapsed < self._min_request_interval:
-            time.sleep(self._min_request_interval - elapsed)
+        """Ensure we don't exceed rate limits. Thread-safe: serialises concurrent callers."""
+        with self._rate_lock:
+            elapsed = time.time() - self._last_request_time
+            if elapsed < self._min_request_interval:
+                time.sleep(self._min_request_interval - elapsed)
         self._last_request_time = time.time()
 
     def _get(self, endpoint: str, params: Optional[dict] = None) -> Optional[dict]:
@@ -206,63 +211,82 @@ class PolymarketClient(PlatformClient):
             return result.get("markets", result.get("data", []))
         return []
 
+    # Polymarket tag slugs that correspond to Kalshi-covered soccer leagues.
+    # Only these leagues can produce cross-platform arb — no point fetching the rest.
+    SOCCER_TAGS = [
+        "premier-league",        # EPL
+        "la-liga",               # La Liga
+        "sea",                   # Serie A
+        "bundesliga",            # Bundesliga
+        "ligue-1",               # Ligue 1
+        "ere",                   # Eredivisie
+        "ucl",                   # UEFA Champions League
+        "uel",                   # UEFA Europa League
+        "uecl",                  # UEFA Conference League
+        "efl-championship",      # EFL Championship
+        "mls",                   # MLS
+        "mex",                   # Liga MX
+        "brazil-serie-a",        # Brasileiro Serie A
+        "primeira-liga",         # Primeira Liga (Liga Portugal)
+        "denmark-superliga",     # Danish Superliga
+        "scottish-premiership",  # Scottish Premiership
+    ]
+
     def find_sports_markets(self) -> list[dict]:
         """
         Find active soccer match-winner markets from Polymarket.
 
-        Uses tag_slug='games' (not 'soccer') to get individual match events,
-        then filters to those tagged 'soccer'. Paginates to capture all leagues.
+        Fetches only the league-specific tags that have Kalshi coverage,
+        in parallel, instead of paginating through all 1600+ soccer events.
         """
-        all_markets = []
-        seen_ids = set()
-        offset = 0
-        page_size = 200
+        seen_ids: set[str] = set()
+        seen_lock = threading.Lock()
+        all_markets: list[dict] = []
 
-        try:
+        def fetch_tag(tag: str) -> list[dict]:
+            tag_markets: list[dict] = []
+            offset = 0
             while True:
                 params = {
-                    "limit": page_size,
+                    "limit": 200,
                     "offset": offset,
                     "active": "true",
                     "closed": "false",
-                    "tag_slug": "games",
+                    "tag_slug": tag,
                     "order": "startDate",
                     "ascending": "true",
                 }
-
                 events = self.fetch_events_raw(params)
                 if not events:
                     break
-
                 for event in events:
-                    # Filter to soccer events only
-                    tags = event.get("tags", [])
-                    is_soccer = any(
-                        t.get("slug") == "soccer"
-                        for t in tags
-                        if isinstance(t, dict)
-                    )
-                    if not is_soccer:
-                        continue
-
-                    event_markets = event.get("markets", [])
-                    for market in event_markets:
-                        if isinstance(market, dict):
-                            market_id = market.get("id")
-                            if market_id and market_id not in seen_ids:
-                                seen_ids.add(market_id)
-                                if "event_title" not in market:
-                                    market["event_title"] = event.get("title")
-                                if "event_slug" not in market:
-                                    market["event_slug"] = event.get("slug")
-                                all_markets.append(market)
-
-                offset += page_size
-                if len(events) < page_size:
+                    for market in event.get("markets", []):
+                        if not isinstance(market, dict):
+                            continue
+                        market_id = market.get("id")
+                        if not market_id:
+                            continue
+                        with seen_lock:
+                            if market_id in seen_ids:
+                                continue
+                            seen_ids.add(market_id)
+                        if "event_title" not in market:
+                            market["event_title"] = event.get("title")
+                        if "event_slug" not in market:
+                            market["event_slug"] = event.get("slug")
+                        tag_markets.append(market)
+                offset += 200
+                if len(events) < 200:
                     break
+            return tag_markets
 
-        except Exception as e:
-            print(f"[Polymarket] Error fetching soccer markets: {e}")
+        with ThreadPoolExecutor(max_workers=len(self.SOCCER_TAGS)) as ex:
+            futures = {ex.submit(fetch_tag, tag): tag for tag in self.SOCCER_TAGS}
+            for future in as_completed(futures):
+                try:
+                    all_markets.extend(future.result())
+                except Exception as e:
+                    print(f"[Polymarket] Error fetching tag {futures[future]}: {e}")
 
         print(f"[Polymarket] Found {len(all_markets)} active soccer markets")
         return all_markets
@@ -517,6 +541,9 @@ class PolymarketClient(PlatformClient):
     def get_pre_kickoff_price(self, token_id: str, kickoff: datetime) -> Optional[float]:
         """Fetch the price of a market just before kickoff using /prices-history.
 
+        Pre-kickoff prices are historical and never change after kickoff, so
+        results are cached in-memory for the lifetime of the client instance.
+
         Args:
             token_id: The CLOB token ID (YES token) for the market.
             kickoff: The match kickoff datetime.
@@ -524,6 +551,9 @@ class PolymarketClient(PlatformClient):
         Returns:
             The last known price before kickoff, or None on error.
         """
+        if token_id in self._pre_kickoff_cache:
+            return self._pre_kickoff_cache[token_id]
+
         try:
             end_ts = int(kickoff.timestamp())
             # Fetch ~2 hours of history before kickoff at 1-hour granularity
@@ -546,7 +576,9 @@ class PolymarketClient(PlatformClient):
             if not history:
                 return None
             # Last entry is the price closest to (but before) kickoff
-            return float(history[-1]["p"])
+            price = float(history[-1]["p"])
+            self._pre_kickoff_cache[token_id] = price
+            return price
         except Exception as e:
             print(f"[Polymarket] Pre-kickoff price fetch failed for {token_id}: {e}")
             return None

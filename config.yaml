@@ -13,20 +13,9 @@ risk:
   stop_loss_pct: 0.20               # Pause if bankroll drops 20% from starting
   max_matchday_exposure_pct: 0.15   # Max 15% of bankroll on any single matchday
 
-# Bankroll
-bankroll:
-  starting: 10000
-
 # Scan settings
 scanner:
   interval_seconds: 60
-  leagues:
-    - premier-league
-    - la-liga
-    - champions-league
-    - serie-a
-    - bundesliga
-    - ligue-1
 
 # Execution safeguards for the web flow
 execution:
@@ -46,11 +35,6 @@ platforms:
     enabled: true
     api_key_id: "${KALSHI_API_KEY}"
     private_key_path: "${KALSHI_PEM_PATH}"
-  # Legacy platforms (disabled by default)
-  azuro:
-    enabled: false
-  oddsapi:
-    enabled: false
 
 # Alerts
 alerts:
