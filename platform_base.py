@@ -23,6 +23,7 @@ class NormalizedMatch:
     league: str
     prices: dict[str, float]               # {"home": 0.55, "draw": 0.25, "away": 0.22}
     liquidity: dict[str, float] = field(default_factory=dict)  # {"home": 1200, ...} in USD
+    pre_kickoff_prices: Optional[dict[str, float]] = None      # prices at kickoff (from history API)
 
 
 @dataclass

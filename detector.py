@@ -91,8 +91,6 @@ def detect_opportunity(
         return None
     if p_reject > config.max_reject_prob:
         return None
-    if p_reject >= gap * config.safety_factor:
-        return None
 
     # Step 5: Calculate metrics
     total_cost = p_a + p_b

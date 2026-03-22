@@ -1190,9 +1190,22 @@ function updateArrows(tableId, col, dir) {
 // ═══════════════════════════════════════════════════════════════
 const cap = s => s ? s.replace(/\b\w/g, c => c.toUpperCase()) : '';
 
-function priceCell(val, outcome, rejected) {
+function scoreBar(score) {
+  const s = Math.max(0, Math.min(10, score));
+  const st = s / 10;
+  const color = `rgb(${Math.round(210 - st*110)},${Math.round(100 + st*100)},${Math.round(100 + st*30)})`;
+  let bar = '';
+  for (let i = 0; i < 5; i++) {
+    const v = s - i * 2;
+    bar += v >= 2 ? '█' : v >= 1 ? '▄' : '▁';
+  }
+  return `<span style="color:${color};letter-spacing:1px" title="${score.toFixed(1)}">${bar}</span>`;
+}
+
+function priceCell(val, outcome, rejected, preKickoff) {
   const cls = outcome === rejected ? ' class="rejected"' : '';
-  return `<td${cls}>${val.toFixed(2)}</td>`;
+  const pre = preKickoff ? `<div style="color:var(--text-muted);font-size:10px">(${(preKickoff * 100).toFixed(0)}%)</div>` : '';
+  return `<td${cls}>${(val * 100).toFixed(0)}%${pre}</td>`;
 }
 
 function betKeySet() {
@@ -1236,17 +1249,16 @@ function renderMatches() {
     if (isAlreadyBet(m, placed)) classes.push('already-bet');
     if (live) classes.push('live-match');
     const rowClass = classes.length ? ` class="${classes.join(' ')}"` : '';
-    const st = Math.min(m.score / 10, 1);
-    const scoreColor = `rgb(${Math.round(210 - st*110)},${Math.round(100 + st*100)},${Math.round(100 + st*30)})`;
+    const scoreDisplay = scoreBar(Math.min(m.score, 10));
 
     return `<tr${rowClass}>
       <td class="date-cell">${dateCell}</td>
       <td title="${label}">${display} ${polyL}${kalL}</td>
-      ${priceCell(m.best_home, 'home', m.rejected)}
-      ${priceCell(m.best_draw, 'draw', m.rejected)}
-      ${priceCell(m.best_away, 'away', m.rejected)}
+      ${priceCell(m.best_home, 'home', m.rejected, live && m.pre_kickoff_home ? m.pre_kickoff_home : null)}
+      ${priceCell(m.best_draw, 'draw', m.rejected, live && m.pre_kickoff_draw ? m.pre_kickoff_draw : null)}
+      ${priceCell(m.best_away, 'away', m.rejected, live && m.pre_kickoff_away ? m.pre_kickoff_away : null)}
       <td>${(m.roi * 100).toFixed(1)}%</td>
-      <td style="color:${scoreColor};font-weight:600">${m.score.toFixed(1)}</td>
+      <td>${scoreDisplay}</td>
       <td><button class="btn btn-sm btn-place" onclick="openBetModal(${i})">Bet</button></td>
     </tr>`;
   }).join('');
@@ -1291,16 +1303,14 @@ function renderBetRows(arr, maxAbs, isPending = false) {
     return `<tr${classAttr}${styleAttr}>
       <td class="date-cell">${dateCell}</td>
       <td title="${label}">${display} ${polyL}${kalL}</td>
-      ${priceCell(b.best_home, 'home', b.rejected)}
-      ${priceCell(b.best_draw, 'draw', b.rejected)}
-      ${priceCell(b.best_away, 'away', b.rejected)}
+      ${priceCell(b.best_home, 'home', b.rejected, null)}
+      ${priceCell(b.best_draw, 'draw', b.rejected, null)}
+      ${priceCell(b.best_away, 'away', b.rejected, null)}
       <td>${(b.roi * 100).toFixed(1)}%</td>
       <td>$${(b.stake || b.loss_if_reject || 0).toFixed(0)}</td>
       <td>${(() => {
         if (isPending) {
-          const st = Math.min((b.score || 0) / 10, 1);
-          const scoreColor = `rgb(${Math.round(210 - st*110)},${Math.round(100 + st*100)},${Math.round(100 + st*30)})`;
-          return `<span style="color:${scoreColor};font-weight:600">${(b.score || 0).toFixed(1)}</span>`;
+          return scoreBar(Math.min(b.score || 0, 10));
         }
         return `<span class="${resCls}" style="cursor:pointer" title="Click to toggle" onclick="toggleResult(${b.id})">${resCell}</span>`;
       })()}</td>

@@ -24,14 +24,13 @@ except ImportError:
 @dataclass
 class StrategyConfig:
     min_gap: float = 0.03
-    max_reject_prob: float = 0.15
-    safety_factor: float = 0.60
-    bet_fraction: float = 0.02
+    max_reject_prob: float = 0.25
+    bet_fraction: float = 0.10
 
 
 @dataclass
 class RiskConfig:
-    max_exposure_per_match: float = 500.0
+    max_exposure_per_match: float = 50.0
     max_total_exposure: float = 3000.0
     stop_loss_pct: float = 0.20
     max_matchday_exposure_pct: float = 0.15
@@ -146,16 +145,15 @@ def load_config(path: str = "config.yaml") -> AppConfig:
         s = raw["strategy"]
         config.strategy = StrategyConfig(
             min_gap=s.get("min_gap", 0.03),
-            max_reject_prob=s.get("max_reject_prob", 0.15),
-            safety_factor=s.get("safety_factor", 0.60),
-            bet_fraction=s.get("bet_fraction", 0.02),
+            max_reject_prob=s.get("max_reject_prob", 0.25),
+            bet_fraction=s.get("bet_fraction", 0.10),
         )
 
     # Risk
     if "risk" in raw:
         r = raw["risk"]
         config.risk = RiskConfig(
-            max_exposure_per_match=r.get("max_exposure_per_match", 500),
+            max_exposure_per_match=r.get("max_exposure_per_match", 50),
             max_total_exposure=r.get("max_total_exposure", 3000),
             stop_loss_pct=r.get("stop_loss_pct", 0.20),
             max_matchday_exposure_pct=r.get("max_matchday_exposure_pct", 0.15),

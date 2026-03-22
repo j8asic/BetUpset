@@ -480,6 +480,17 @@ class PolymarketClient(PlatformClient):
             except (ValueError, TypeError):
                 pass
 
+        # Fetch pre-kickoff prices for live matches
+        pre_kickoff = None
+        if kickoff and datetime.now(timezone.utc) > kickoff and clob_tokens:
+            pre_kickoff = {}
+            for outcome, token_id in clob_tokens.items():
+                price = self.get_pre_kickoff_price(token_id, kickoff)
+                if price is not None:
+                    pre_kickoff[outcome] = price
+            if not pre_kickoff:
+                pre_kickoff = None
+
         return NormalizedMatch(
             platform="polymarket",
             platform_market_id=json.dumps({
@@ -493,8 +504,52 @@ class PolymarketClient(PlatformClient):
             league="",  # Polymarket doesn't always provide league info
             prices=prices,
             liquidity=liquidity,
+            pre_kickoff_prices=pre_kickoff,
         )
 
+
+    # ================================================================
+    # Pre-kickoff price history
+    # ================================================================
+
+    _CLOB_BASE = "https://clob.polymarket.com"
+
+    def get_pre_kickoff_price(self, token_id: str, kickoff: datetime) -> Optional[float]:
+        """Fetch the price of a market just before kickoff using /prices-history.
+
+        Args:
+            token_id: The CLOB token ID (YES token) for the market.
+            kickoff: The match kickoff datetime.
+
+        Returns:
+            The last known price before kickoff, or None on error.
+        """
+        try:
+            end_ts = int(kickoff.timestamp())
+            # Fetch ~2 hours of history before kickoff at 1-hour granularity
+            start_ts = end_ts - 7200
+            resp = self.session.get(
+                f"{self._CLOB_BASE}/prices-history",
+                params={
+                    "market": token_id,
+                    "startTs": start_ts,
+                    "endTs": end_ts,
+                    "interval": "1h",
+                    "fidelity": 60,
+                },
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            history = data.get("history", [])
+            if not history:
+                return None
+            # Last entry is the price closest to (but before) kickoff
+            return float(history[-1]["p"])
+        except Exception as e:
+            print(f"[Polymarket] Pre-kickoff price fetch failed for {token_id}: {e}")
+            return None
 
     # ================================================================
     # Balance & settlement
