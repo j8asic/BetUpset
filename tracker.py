@@ -106,6 +106,11 @@ class PortfolioTracker:
             conn.commit()
         except sqlite3.OperationalError:
             pass  # Column already exists
+        try:
+            conn.execute("ALTER TABLE bets ADD COLUMN winning_outcome TEXT DEFAULT ''")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         conn.close()
 
     def _ensure_csv(self):
@@ -326,11 +331,12 @@ class PortfolioTracker:
         conn.commit()
         conn.close()
 
-    def update_bet_result(self, bet_id: int, result: str):
-        """Update the result field of a bet."""
+    def update_bet_result(self, bet_id: int, result: str, winning_outcome: str = ""):
+        """Update the result and winning outcome of a bet."""
         conn = sqlite3.connect(self.db_path)
         conn.execute(
-            "UPDATE bets SET result = ? WHERE id = ?", (result, bet_id)
+            "UPDATE bets SET result = ?, winning_outcome = ? WHERE id = ?",
+            (result, winning_outcome, bet_id),
         )
         conn.commit()
         conn.close()

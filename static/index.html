@@ -1199,13 +1199,19 @@ function scoreBar(score) {
     const v = s - i * 2;
     bar += v >= 2 ? '█' : v >= 1 ? '▄' : '▁';
   }
-  return `<span style="color:${color};letter-spacing:1px" title="${score.toFixed(1)}">${bar}</span>`;
+  return `<span style="color:${color};letter-spacing:0px" title="${score.toFixed(1)}">${bar}</span>`;
 }
 
-function priceCell(val, outcome, rejected, preKickoff) {
+function priceCell(val, outcome, rejected, preKickoff, winner, betResult) {
   const cls = outcome === rejected ? ' class="rejected"' : '';
   const pre = preKickoff ? `<div style="color:var(--text-muted);font-size:10px">(${(preKickoff * 100).toFixed(0)}%)</div>` : '';
-  return `<td${cls}>${(val * 100).toFixed(0)}%${pre}</td>`;
+  const pct = `${(val * 100).toFixed(0)}%`;
+  let content = pct;
+  if (winner && winner === outcome) {
+    const color = betResult === 'FAIL' ? 'rgba(255, 139, 148, 0.3)' : 'rgba(144, 238, 144, 0.3)';
+    content = `<span style="border:1.0px solid ${color};border-radius:3px;padding:0 3px">${pct}</span>`;
+  }
+  return `<td${cls}>${content}${pre}</td>`;
 }
 
 function betKeySet() {
@@ -1303,9 +1309,9 @@ function renderBetRows(arr, maxAbs, isPending = false) {
     return `<tr${classAttr}${styleAttr}>
       <td class="date-cell">${dateCell}</td>
       <td title="${label}">${display} ${polyL}${kalL}</td>
-      ${priceCell(b.best_home, 'home', b.rejected, null)}
-      ${priceCell(b.best_draw, 'draw', b.rejected, null)}
-      ${priceCell(b.best_away, 'away', b.rejected, null)}
+      ${priceCell(b.best_home, 'home', b.rejected, null, b.winning_outcome, b.result)}
+      ${priceCell(b.best_draw, 'draw', b.rejected, null, b.winning_outcome, b.result)}
+      ${priceCell(b.best_away, 'away', b.rejected, null, b.winning_outcome, b.result)}
       <td>${(b.roi * 100).toFixed(1)}%</td>
       <td>$${(b.stake || b.loss_if_reject || 0).toFixed(0)}</td>
       <td>${(() => {

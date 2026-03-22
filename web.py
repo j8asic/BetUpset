@@ -769,46 +769,55 @@ async def resolve_pending(request: Request):
     resolved_count = 0
 
     for bet in pending:
-        result = await asyncio.to_thread(
+        resolution = await asyncio.to_thread(
             _check_bet_resolution, bet, kalshi, poly
         )
-        if result:
-            tracker.update_bet_result(bet["id"], result)
+        if resolution:
+            result, winning_outcome = resolution
+            tracker.update_bet_result(bet["id"], result, winning_outcome)
             resolved_count += 1
 
     return {"resolved": resolved_count}
 
 
-def _check_bet_resolution(bet: dict, kalshi, poly) -> Optional[str]:
-    """Check if a bet's markets have settled. Returns 'PASS'/'FAIL' or None."""
-    rejected = bet["rejected"]  # outcome we didn't bet on
+def _check_bet_resolution(bet: dict, kalshi, poly) -> Optional[tuple[str, str]]:
+    """Check if a bet's markets have settled.
 
-    # Try Kalshi first
+    Returns (result, winning_outcome) or None if not yet settled.
+    result is 'PASS' or 'FAIL', winning_outcome is 'home'/'draw'/'away'.
+    """
+    rejected = bet["rejected"]
+    outcomes = ["home", "draw", "away"]
+
+    # Try Kalshi — check all outcomes to find the winner
     kalshi_ids = bet.get("kalshi_market_id", "")
     if kalshi and kalshi_ids:
         try:
             ids = json.loads(kalshi_ids)
-            # Check the rejected outcome's market ticker
-            rejected_ticker = ids.get(rejected)
-            if rejected_ticker:
-                result = kalshi.get_market_result(rejected_ticker)
-                if result is not None:
-                    # "yes" means the rejected outcome won → we FAIL
-                    return "FAIL" if result == "yes" else "PASS"
+            for outcome in outcomes:
+                ticker = ids.get(outcome)
+                if not ticker:
+                    continue
+                result = kalshi.get_market_result(ticker)
+                if result == "yes":
+                    bet_result = "FAIL" if outcome == rejected else "PASS"
+                    return (bet_result, outcome)
         except (json.JSONDecodeError, AttributeError):
             pass
 
-    # Try Polymarket
+    # Try Polymarket — check all outcomes to find the winner
     poly_ids = bet.get("poly_market_id", "")
     if poly and poly_ids:
         try:
             ids = json.loads(poly_ids)
-            rejected_id = ids.get(rejected)
-            if rejected_id:
-                result = poly.get_market_result(rejected_id)
-                if result is not None:
-                    # "Yes" means the rejected outcome won → we FAIL
-                    return "FAIL" if result == "Yes" else "PASS"
+            for outcome in outcomes:
+                market_id = ids.get(outcome)
+                if not market_id:
+                    continue
+                result = poly.get_market_result(market_id)
+                if result == "Yes":
+                    bet_result = "FAIL" if outcome == rejected else "PASS"
+                    return (bet_result, outcome)
         except (json.JSONDecodeError, AttributeError):
             pass
 
