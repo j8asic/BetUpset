@@ -883,17 +883,17 @@ function openBetModal(idx) {
   if (executionPolicy?.max_stake_per_trade > 0) {
     sliderMax = Math.min(sliderMax, Math.floor(executionPolicy.max_stake_per_trade));
   }
-  sliderMax = Math.max(sliderMax, 5);  // floor at $5
+  sliderMax = Math.max(sliderMax, 10);  // floor at $10 (Polymarket min 5 shares needs enough stake)
 
   // Default = Kelly-lite: balance * roi * win_prob * 2
   const totalBalance = (polyBal || 0) + (kalshiBal || 0);
   const defaultStake = totalBalance > 0
-    ? Math.min(sliderMax, Math.max(5, Math.round(totalBalance * m.roi * m.win_prob * 2)))
-    : Math.min(sliderMax, Math.max(5, Math.round(sliderMax * 0.1)));
+    ? Math.min(sliderMax, Math.max(10, Math.round(totalBalance * m.roi * m.win_prob * 2)))
+    : Math.min(sliderMax, Math.max(10, Math.round(sliderMax * 0.1)));
 
   const slider = document.getElementById('bet-slider');
   slider.max   = sliderMax;
-  slider.min   = 1;
+  slider.min   = 10;
   slider.value = Math.min(defaultStake, sliderMax);
   document.getElementById('slider-max-label').textContent = `$${sliderMax}`;
 
@@ -1126,8 +1126,7 @@ async function confirmSell() {
     await api('POST', `/api/bets/${id}/sell`);
     document.getElementById('sell-modal').classList.remove('open');
     pendingSellId = null;
-    bets = bets.filter(b => b.id !== id);
-    syncBetsUi();
+    await fetchBets();
     renderMatches();
   } catch (e) {
     alert('Sell failed: ' + e.message);

@@ -489,23 +489,29 @@ def _place_single_order(
         if not ticker:
             return {"error": f"no ticker for {outcome}", "ok": False}
         price_cents = max(1, min(99, round(price * 100)))
-        order_id = client.place_order(ticker, "yes", shares, price_cents)
-        return {
-            "order_id": order_id, "ticker": ticker,
-            "outcome": outcome, "count": shares,
-            "price_cents": price_cents, "ok": order_id is not None,
-        }
+        try:
+            order_id = client.place_order(ticker, "yes", shares, price_cents)
+            return {
+                "order_id": order_id, "ticker": ticker,
+                "outcome": outcome, "count": shares,
+                "price_cents": price_cents, "ok": True,
+            }
+        except Exception as e:
+            return {"error": str(e), "ticker": ticker, "outcome": outcome, "ok": False}
 
     if platform == "polymarket":
         clob_tokens = poly_ids.get("_clob_tokens", {})
         token_id = clob_tokens.get(outcome)
         if not token_id:
             return {"error": f"no CLOB token for {outcome}", "ok": False}
-        order_id = client.place_order(token_id, "BUY", shares * price, price)
-        return {
-            "order_id": order_id, "token_id": token_id,
-            "outcome": outcome, "ok": order_id is not None,
-        }
+        try:
+            order_id = client.place_order(token_id, "BUY", shares * price, price)
+            return {
+                "order_id": order_id, "token_id": token_id,
+                "outcome": outcome, "ok": True,
+            }
+        except Exception as e:
+            return {"error": str(e), "token_id": token_id, "outcome": outcome, "ok": False}
 
     return {"error": f"unknown platform {platform}", "ok": False}
 
@@ -529,7 +535,7 @@ def _place_orders(bet: dict) -> dict:
     if not covered_a or not covered_b or not stake or not (price_a + price_b):
         return {}
 
-    shares = max(1, int(stake / (price_a + price_b)))
+    shares = max(5, int(stake / (price_a + price_b)))  # Polymarket minimum order size is 5
 
     try:
         clients = _get_platform_clients()

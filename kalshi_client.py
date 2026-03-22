@@ -332,11 +332,14 @@ class KalshiClient(PlatformClient):
             return None
 
         # Parse kickoff
+        # expected_expiration_time is the settlement deadline (~kickoff + 2h), not the actual kickoff.
+        # Subtract 2 hours to approximate real kickoff so live games show correctly.
         kickoff = None
         exp_time = markets[0].get("expected_expiration_time") or markets[0].get("close_time")
         if exp_time:
             try:
-                kickoff = datetime.fromisoformat(exp_time.replace("Z", "+00:00"))
+                from datetime import timedelta
+                kickoff = datetime.fromisoformat(exp_time.replace("Z", "+00:00")) - timedelta(hours=2)
             except (ValueError, TypeError):
                 pass
 
@@ -463,20 +466,20 @@ class KalshiClient(PlatformClient):
             print("[Kalshi] Cannot place order: no private key loaded")
             return None
 
-        path = "/trade-api/v2/orders"
+        path = "/trade-api/v2/portfolio/orders"
         body = {
             "ticker": ticker,
             "side": side,
             "action": "buy",
             "count": count,
             f"{side}_price": price_cents,
-            "time_in_force": "GTC",
         }
         auth_headers = self._make_auth_headers("POST", path)
         try:
             self._rate_limit()
+            print(f"[Kalshi] Placing order: {body}")
             resp = self.session.post(
-                f"{self.BASE_URL}/orders",
+                f"{self.BASE_URL}/portfolio/orders",
                 json=body,
                 headers=auth_headers,
                 timeout=15,
@@ -486,10 +489,14 @@ class KalshiClient(PlatformClient):
                 order_id = data.get("order", {}).get("order_id")
                 print(f"[Kalshi] Order placed: {ticker} {side} x{count} @ {price_cents}¢ → {order_id}")
                 return order_id
-            print(f"[Kalshi] Order failed {resp.status_code}: {resp.text[:300]}")
+            err = f"HTTP {resp.status_code}: {resp.text[:300]}"
+            print(f"[Kalshi] Order failed {err}")
+            raise RuntimeError(err)
+        except RuntimeError:
+            raise
         except Exception as e:
             print(f"[Kalshi] Order error: {e}")
-        return None
+            raise
 
     def get_position(self, ticker: str, side: str = "yes") -> int:
         """Return current contract count held for a market ticker. Returns 0 if none or error."""
@@ -516,20 +523,19 @@ class KalshiClient(PlatformClient):
         if self._private_key is None:
             print("[Kalshi] Cannot sell: no private key loaded")
             return False
-        path = "/trade-api/v2/orders"
+        path = "/trade-api/v2/portfolio/orders"
         body = {
             "ticker": ticker,
             "side": side,
             "action": "sell",
             "count": count,
             f"{side}_price": price_cents,
-            "time_in_force": "GTC",
         }
         auth_headers = self._make_auth_headers("POST", path)
         try:
             self._rate_limit()
             resp = self.session.post(
-                f"{self.BASE_URL}/orders",
+                f"{self.BASE_URL}/portfolio/orders",
                 json=body,
                 headers=auth_headers,
                 timeout=15,
@@ -545,12 +551,12 @@ class KalshiClient(PlatformClient):
         """Cancel an open order. Returns True on success."""
         if self._private_key is None:
             return False
-        path = f"/trade-api/v2/orders/{order_id}"
+        path = f"/trade-api/v2/portfolio/orders/{order_id}"
         auth_headers = self._make_auth_headers("DELETE", path)
         try:
             self._rate_limit()
             resp = self.session.delete(
-                f"{self.BASE_URL}/orders/{order_id}",
+                f"{self.BASE_URL}/portfolio/orders/{order_id}",
                 headers=auth_headers,
                 timeout=15,
             )

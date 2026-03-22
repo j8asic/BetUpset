@@ -18,11 +18,7 @@ fastapi>=0.110.0         # Web backend
 uvicorn[standard]>=0.27.0 # ASGI server
 eth-account>=0.11.0      # Derive Polymarket wallet address from private key
 itsdangerous>=2.2.0      # Signed session cookies for optional dashboard auth
-textual>=0.58.0          # Historical TUI
 cryptography>=41.0.0     # Encrypting session cookies
-
-# Legacy (for Azuro integration, optional)
-gql[requests]>=3.5.0    # GraphQL client for Azuro
 
 # Testing
 pytest>=7.0

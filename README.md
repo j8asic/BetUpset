@@ -165,7 +165,7 @@ If `APP_PASSWORD` is set, the web dashboard requires that password before it wil
 .
 ├── web.py                 # FastAPI backend and web entrypoint
 ├── static/index.html      # Single-page frontend
-├── scan_service.py        # Shared scan logic for web/TUI
+├── scan_service.py        # Scanning logic
 ├── main.py                # CLI monitor loop
 ├── scanner.py             # Platform scanning pipeline
 ├── matching.py            # Cross-platform match grouping

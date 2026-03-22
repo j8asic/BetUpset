@@ -204,8 +204,6 @@ def _set_default_platforms(config: AppConfig):
     defaults = {
         "polymarket": True,
         "kalshi": True,
-        "azuro": False,
-        "oddsapi": False,
     }
     for name, default_enabled in defaults.items():
         if name not in config.platforms:
@@ -213,67 +211,8 @@ def _set_default_platforms(config: AppConfig):
 
 
 # ============================================================
-# LEGACY CONSTANTS (backward compatibility for old modules)
+# LEGACY CONSTANTS AND UTILITIES (to be removed/refactored)
 # ============================================================
-
-POLL_INTERVAL_SECONDS = 60
-TARGET_COST_MAX = 0.85
-SAFETY_THRESHOLD = 0.15
-
-AZURO_GRAPHQL_ENDPOINT = (
-    "https://thegraph.onchainfeed.org/subgraphs/name/azuro-protocol/azuro-api-polygon-v3"
-)
-
-AZURO_GAMES_QUERY = """
-query GetSoccerGames($first: Int!, $skip: Int!) {
-  games(
-    where: {
-      sport_: { name: "Football" }
-    }
-    first: $first
-    skip: $skip
-    orderBy: startsAt
-    orderDirection: desc
-  ) {
-    id
-    gameId
-    title
-    startsAt
-    status
-    sport {
-      name
-    }
-    league {
-      name
-      country {
-        name
-      }
-    }
-    conditions {
-      conditionId
-      status
-      outcomes {
-        outcomeId
-        currentOdds
-      }
-    }
-  }
-}
-"""
-
-POLYMARKET_GAMMA_BASE_URL = "https://gamma-api.polymarket.com"
-
-ODDS_API_LEAGUES = [
-    "soccer_epl",
-    "soccer_spain_la_liga",
-    "soccer_germany_bundesliga",
-    "soccer_italy_serie_a",
-    "soccer_france_ligue_one",
-    "soccer_uefa_champs_league",
-    "soccer_uefa_europa_league",
-]
-
-OUTPUT_CSV_PATH = "opportunities.csv"
 
 DEMO_MATCHES = [
     {"title": "Liverpool FC – Chelsea FC", "league": "Premier League", "country": "England",

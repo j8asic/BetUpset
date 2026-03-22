@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Shared scan and row-formatting utilities used by the web app and TUI.
+Shared scan and row-formatting utilities used by the web app.
 
 Uses detector.py as the single source of truth for arbitrage detection.
 """
@@ -8,7 +8,7 @@ Uses detector.py as the single source of truth for arbitrage detection.
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 from config import StrategyConfig
 from detector import detect_opportunity
@@ -225,5 +225,37 @@ def run_scan(demo: bool = False) -> tuple[list[MatchRow], int]:
             return [], 0
         scanner = Scanner(_platforms)
         matches = scanner.scan()
+
+        # After matching we have the corrected Kalshi kickoff. For live games where
+        # Polymarket's extended endDate caused the pre-kickoff fetch to be skipped,
+        # retry here using the snapshot cache (fast) or CLOB fallback (cold start).
+        now_utc = datetime.now(timezone.utc)
+        poly_client = next((p for p in _platforms if p.name == "polymarket"), None)
+        if poly_client:
+            for match in matches:
+                if not match.kickoff or now_utc <= match.kickoff:
+                    continue
+                poly_match = match.platform_data.get("polymarket")
+                if not poly_match or poly_match.pre_kickoff_prices:
+                    continue
+                try:
+                    ids = json.loads(poly_match.platform_market_id)
+                    event_slug = ids.get("_event_slug", "")
+                    # 1. Snapshot cache (Gamma prices captured before kickoff — no API call)
+                    if event_slug and event_slug in poly_client._event_price_snapshot:
+                        poly_match.pre_kickoff_prices = poly_client._event_price_snapshot[event_slug]
+                        continue
+                    # 2. CLOB prices-history fallback (cold start — server restarted mid-game)
+                    clob_tokens = ids.get("_clob_tokens", {})
+                    if clob_tokens:
+                        pre = {}
+                        for outcome, token_id in clob_tokens.items():
+                            price = poly_client.get_pre_kickoff_price(token_id, match.kickoff)
+                            if price is not None:
+                                pre[outcome] = price
+                        if pre:
+                            poly_match.pre_kickoff_prices = pre
+                except Exception:
+                    pass
 
     return compute_match_rows(matches, config.strategy)

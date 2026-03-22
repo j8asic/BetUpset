@@ -16,7 +16,6 @@ from typing import Optional
 
 import requests
 
-from config import POLYMARKET_GAMMA_BASE_URL
 from platform_base import PlatformClient, NormalizedMatch
 from matching import (
     clean_team_name,
@@ -29,7 +28,7 @@ class PolymarketClient(PlatformClient):
     """Client for Polymarket's Gamma API (read) and CLOB API (trade)."""
 
     def __init__(self, credentials: Optional[dict] = None):
-        self.base_url = POLYMARKET_GAMMA_BASE_URL
+        self.base_url = "https://gamma-api.polymarket.com"
         self.session = requests.Session()
         self.session.headers.update({
             "Accept": "application/json",
@@ -39,7 +38,8 @@ class PolymarketClient(PlatformClient):
         self._min_request_interval = 0.5  # Rate limit: 2 requests per second
         self._rate_lock = threading.Lock()  # Serialise concurrent thread access to rate limiter
         self._credentials = credentials or {}
-        self._pre_kickoff_cache: dict[str, float] = {}  # token_id → price (immutable after kickoff)
+        self._pre_kickoff_cache: dict[str, float] = {}  # token_id → price (CLOB history, immutable after kickoff)
+        self._event_price_snapshot: dict[str, dict[str, float]] = {}  # event_slug → {outcome: price} captured before kickoff
 
     # ================================================================
     # PlatformClient interface
@@ -107,7 +107,7 @@ class PolymarketClient(PlatformClient):
             elapsed = time.time() - self._last_request_time
             if elapsed < self._min_request_interval:
                 time.sleep(self._min_request_interval - elapsed)
-        self._last_request_time = time.time()
+            self._last_request_time = time.time()
 
     def _get(self, endpoint: str, params: Optional[dict] = None) -> Optional[dict]:
         """Make a GET request to the Gamma API."""
@@ -504,16 +504,30 @@ class PolymarketClient(PlatformClient):
             except (ValueError, TypeError):
                 pass
 
-        # Fetch pre-kickoff prices for live matches
+        # Snapshot and serve pre-kickoff reference prices
+        event_slug = markets[0].get("event_slug") or markets[0].get("slug", "")
+        now_utc = datetime.now(timezone.utc)
         pre_kickoff = None
-        if kickoff and datetime.now(timezone.utc) > kickoff and clob_tokens:
-            pre_kickoff = {}
-            for outcome, token_id in clob_tokens.items():
-                price = self.get_pre_kickoff_price(token_id, kickoff)
-                if price is not None:
-                    pre_kickoff[outcome] = price
-            if not pre_kickoff:
-                pre_kickoff = None
+        if len(prices) >= 2 and event_slug:
+            if not kickoff or now_utc < kickoff:
+                # Still pre-kickoff: snapshot current Gamma prices for future live display.
+                # Only update the snapshot if we don't already have one (first clear reading wins).
+                if event_slug not in self._event_price_snapshot:
+                    self._event_price_snapshot[event_slug] = dict(prices)
+            else:
+                # Live game (now >= kickoff per Polymarket endDate):
+                # Return the snapshot taken before kickoff if available.
+                if event_slug in self._event_price_snapshot:
+                    pre_kickoff = self._event_price_snapshot[event_slug]
+                elif clob_tokens:
+                    # Cold-start fallback: fetch historical prices from CLOB prices-history API.
+                    pre_kickoff = {}
+                    for outcome, token_id in clob_tokens.items():
+                        price = self.get_pre_kickoff_price(token_id, kickoff)
+                        if price is not None:
+                            pre_kickoff[outcome] = price
+                    if not pre_kickoff:
+                        pre_kickoff = None
 
         return NormalizedMatch(
             platform="polymarket",
@@ -587,42 +601,22 @@ class PolymarketClient(PlatformClient):
     # Balance & settlement
     # ================================================================
 
-    # USDC contract on Polygon (where Polymarket operates)
-    _POLYGON_RPC = "https://polygon-rpc.com"
-    _USDC_POLYGON = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
-
     def get_balance(self) -> Optional[float]:
-        """Fetch USDC balance from Polygon blockchain.
+        """Fetch spendable USDC balance from the Polymarket proxy wallet.
 
-        Derives the wallet address from the private key in POLYMARKET_PEM_PATH
-        (hex Ethereum private key), then queries the public Polygon RPC.
-        No Polymarket API auth required.
+        Polymarket holds funds in a proxy wallet contract, not the EOA directly.
+        The CLOB API's get_balance() returns the correct tradeable balance.
         """
-        import os
-        pem_path = (
-            self._credentials.get("private_key_path", "")
-            or os.environ.get("POLYMARKET_PEM_PATH", "")
-        )
-        if not pem_path or not os.path.exists(pem_path):
-            return None
-
         try:
-            from eth_account import Account
-            with open(pem_path) as f:
-                eth_key_hex = f.read().strip()
-            wallet = Account.from_key(eth_key_hex).address
-
-            # balanceOf(address) ABI call
-            data = "0x70a08231" + "000000000000000000000000" + wallet[2:].lower()
-            payload = {
-                "jsonrpc": "2.0", "method": "eth_call",
-                "params": [{"to": self._USDC_POLYGON, "data": data}, "latest"],
-                "id": 1,
-            }
-            resp = requests.post(self._POLYGON_RPC, json=payload, timeout=10)
-            result = resp.json().get("result", "0x0")
-            return int(result, 16) / 1e6  # USDC has 6 decimals
-        except Exception:
+            from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
+            client = self._get_clob_client()
+            resp = client.get_balance_allowance(
+                BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
+            )
+            # resp balance is in micro-USDC (6 decimals) → divide by 1e6
+            return float(resp.get("balance", 0)) / 1e6
+        except Exception as e:
+            print(f"[Polymarket] get_balance failed: {e}")
             return None
 
     _clob_client = None
@@ -642,30 +636,35 @@ class PolymarketClient(PlatformClient):
             or os.environ.get("POLYMARKET_PEM_PATH", "")
         )
         if not pem_path or not os.path.exists(pem_path):
-            raise RuntimeError(
-                "POLYMARKET_PEM_PATH not set or file not found"
-            )
+            raise RuntimeError("POLYMARKET_PEM_PATH not set or file not found")
 
         with open(pem_path) as f:
             private_key = f.read().strip()
 
+        # funder = proxy wallet address (shown on polymarket.com profile).
+        # Required when the signing key is separate from the proxy wallet.
+        funder = (
+            self._credentials.get("wallet_address", "")
+            or os.environ.get("POLY_WALLET", "")
+        )
+
         from py_clob_client.client import ClobClient
 
-        # Level 1 init (to derive creds)
-        client = ClobClient(
+        clob_kwargs = dict(
             host="https://clob.polymarket.com",
             chain_id=137,
             key=private_key,
+            signature_type=1,  # proxy wallet / EIP-712 via funder
         )
+        if funder:
+            clob_kwargs["funder"] = funder
+
+        # Level 1: derive API credentials
+        client = ClobClient(**clob_kwargs)
         creds = client.create_or_derive_api_creds()
 
-        # Level 2 init (full trading access)
-        self._clob_client = ClobClient(
-            host="https://clob.polymarket.com",
-            chain_id=137,
-            key=private_key,
-            creds=creds,
-        )
+        # Level 2: full trading access
+        self._clob_client = ClobClient(**clob_kwargs, creds=creds)
         return self._clob_client
 
     def place_order(
@@ -688,10 +687,14 @@ class PolymarketClient(PlatformClient):
         from py_clob_client.clob_types import OrderArgs, OrderType
 
         try:
+            size = round(size_usdc / price, 2)
+            print(f"[Polymarket] placing order: size_usdc={size_usdc:.4f} price={price:.4f} → size(shares)={size}")
+            if size < 5:
+                raise ValueError(f"Computed size {size} is below Polymarket minimum of 5 shares (size_usdc={size_usdc:.4f}, price={price:.4f})")
             order_args = OrderArgs(
                 token_id=token_id,
                 price=price,
-                size=round(size_usdc / price, 2),  # shares = USDC / price
+                size=size,
                 side=side.upper(),
             )
             signed_order = client.create_order(order_args)
@@ -700,10 +703,12 @@ class PolymarketClient(PlatformClient):
             if isinstance(resp, dict):
                 order_id = resp.get("orderID") or resp.get("id")
             print(f"[Polymarket] Order placed: {resp}")
+            if not order_id:
+                raise RuntimeError(str(resp))
             return order_id
         except Exception as e:
             print(f"[Polymarket] Order failed: {e}")
-            return None
+            raise
 
     def get_position(self, token_id: str) -> float:
         """Return current shares held for a CLOB token. Returns 0.0 if none or error."""
