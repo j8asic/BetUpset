@@ -929,6 +929,54 @@ def _bet_is_ready_for_resolution_check(bet: dict, now: Optional[datetime] = None
 
 
 # ---------------------------------------------------------------------------
+# API: Export Matches
+# ---------------------------------------------------------------------------
+
+@app.get("/api/matches/csv")
+async def export_matches_csv(request: Request):
+    """Export the most recently scanned raw matches as a CSV."""
+    _require_auth(request)
+    
+    from fastapi.responses import Response
+    import csv
+    import io
+    from scan_service import get_last_raw_matches
+    
+    matches = get_last_raw_matches()
+    si = io.StringIO()
+    writer = csv.writer(si)
+    
+    writer.writerow([
+        "Match Key", "Kickoff",
+        "Polymarket Home", "Polymarket Away", "Polymarket Date",
+        "Kalshi Home", "Kalshi Away", "Kalshi Date"
+    ])
+    
+    for m in matches:
+        poly = m.platform_data.get("polymarket")
+        kalshi = m.platform_data.get("kalshi")
+        
+        p_home = poly.home_team if poly else ""
+        p_away = poly.away_team if poly else ""
+        p_date = poly.kickoff.isoformat() if poly and poly.kickoff else ""
+        
+        k_home = kalshi.home_team if kalshi else ""
+        k_away = kalshi.away_team if kalshi else ""
+        k_date = kalshi.kickoff.isoformat() if kalshi and kalshi.kickoff else ""
+        
+        writer.writerow([
+            m.match_key,
+            m.kickoff.isoformat() if m.kickoff else "",
+            p_home, p_away, p_date,
+            k_home, k_away, k_date
+        ])
+        
+    response = Response(content=si.getvalue(), media_type="text/csv")
+    response.headers["Content-Disposition"] = 'attachment; filename="all_scanned_matches.csv"'
+    return response
+
+
+# ---------------------------------------------------------------------------
 # Static files
 # ---------------------------------------------------------------------------
 

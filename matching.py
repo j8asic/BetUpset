@@ -406,8 +406,8 @@ def group_matches_by_event(
             keyless_index.setdefault(kl, []).append(key)
         groups_cores[key] = (_core_name(match.home_team), _core_name(match.away_team))
 
-    # Only return matches found on 2+ platforms
-    return [g for g in groups.values() if len(g.platform_data) >= 2]
+    # Return all grouped matches
+    return list(groups.values())
 
 
 def _kickoffs_close(

@@ -204,6 +204,11 @@ def compute_match_rows(
 
 
 _platforms: list | None = None  # singleton — reused across scans so caches persist
+_last_raw_matches: list[CrossPlatformMatch] = []
+
+
+def get_last_raw_matches() -> list[CrossPlatformMatch]:
+    return _last_raw_matches
 
 
 def run_scan(demo: bool = False) -> tuple[list[MatchRow], int]:
@@ -258,4 +263,6 @@ def run_scan(demo: bool = False) -> tuple[list[MatchRow], int]:
                 except Exception:
                     pass
 
+    global _last_raw_matches
+    _last_raw_matches = matches
     return compute_match_rows(matches, config.strategy)

@@ -47,8 +47,9 @@ class Scanner:
 
         # Group by real-world match across platforms
         grouped = group_matches_by_event(all_matches)
+        cross_platform_count = sum(1 for g in grouped if len(g.platform_data) >= 2)
 
         print(f"[Scanner] {len(all_matches)} total markets -> "
-              f"{len(grouped)} cross-platform matches")
+              f"{cross_platform_count} cross-platform matches")
 
         return grouped
