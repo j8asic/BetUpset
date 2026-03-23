@@ -20,7 +20,7 @@
     --blue: #a8d8ea;
     --yellow: #ffd3b6;
     --accent: #ffffff;
-    --ui-font-size: 12px;
+    --ui-font-size: 11pt;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -45,7 +45,7 @@
     gap: 8px;
   }
 
-  header h1 { font-size: 18px; font-weight: 600; color: var(--blue); letter-spacing: 1px; }
+  header h1 { font-size: 14px; font-weight: 700; color: var(--blue); letter-spacing: 1px; }
 
   .header-right { display: flex; gap: 8px; align-items: center; }
   #scan-status { color: var(--text-muted); font-size: var(--ui-font-size); }
@@ -64,6 +64,7 @@
     border-radius: 3px;
     font-size: var(--ui-font-size);
     font-family: inherit;
+    font-weight: 700;
     box-shadow: inset 2px 2px 0 rgba(255,255,255,0.28), inset -2px -2px 0 rgba(0,0,0,0.3);
   }
   .btn:active { box-shadow: inset -2px -2px 0 rgba(255,255,255,0.28), inset 2px 2px 0 rgba(0,0,0,0.3); }
@@ -92,7 +93,7 @@
   .panel-header {
     background: var(--panel);
     padding: 10px 16px;
-    font-weight: 600;
+    font-weight: 700;
     font-size: var(--ui-font-size);
     letter-spacing: 0.5px;
     border-bottom: 1px solid var(--border);
@@ -115,7 +116,7 @@
   }
   .bal-item { display: flex; gap: 6px; align-items: center; }
   .bal-label { color: var(--text-muted); }
-  .bal-value { color: var(--text-muted); font-weight: 600; }
+  .bal-value { color: var(--text-muted); font-weight: 700; }
   .bal-link {
     color: inherit; text-decoration: none;
     border-bottom: 1px dashed var(--text-muted);
@@ -134,7 +135,7 @@
     background: var(--panel);
     position: sticky; top: 0; z-index: 1;
     cursor: pointer; user-select: none;
-    font-weight: 500; color: var(--text-muted);
+    font-weight: 700; color: var(--text-muted);
     font-size: var(--ui-font-size); text-transform: uppercase; letter-spacing: 0.5px;
   }
   th:hover { color: var(--text); }
@@ -188,7 +189,7 @@
 
   .link-btn {
     display: inline-block; padding: 1px 3px; border-radius: 2px;
-    font-size: 10px; text-decoration: none; color: var(--text-muted);
+    text-decoration: none; color: var(--text-muted);
     border: 1px solid var(--border); margin: 0 1px; transition: all 0.15s;
   }
   .link-btn:hover { color: var(--accent); border-color: var(--accent); }
@@ -202,7 +203,7 @@
     display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
     font-size: var(--ui-font-size);
   }
-  .pnl-total { font-weight: 600; font-size: var(--ui-font-size); color: var(--yellow); }
+  .pnl-total { font-weight: 700; font-size: var(--ui-font-size); color: var(--yellow); }
   .pnl-stat  { color: var(--text-muted); font-size: var(--ui-font-size); }
 
   tr.already-bet td { opacity: 0.35; }
@@ -230,7 +231,7 @@
   }
 
   .modal h2 {
-    font-size: var(--ui-font-size); font-weight: 600; color: var(--blue);
+    font-size: var(--ui-font-size); font-weight: 700; color: var(--blue);
     margin-bottom: 24px; letter-spacing: 0.5px;
   }
 
@@ -239,7 +240,7 @@
     display: flex; justify-content: space-between;
     margin-bottom: 10px; font-size: var(--ui-font-size); color: var(--text-muted);
   }
-  .slider-header span:last-child { color: var(--yellow); font-weight: 600; font-size: var(--ui-font-size); }
+  .slider-header span:last-child { color: var(--yellow); font-weight: 700; font-size: var(--ui-font-size); }
 
   input[type=range] {
     width: 100%; accent-color: var(--accent);
@@ -259,7 +260,7 @@
   }
   .proj-label { color: var(--text-muted); font-size: var(--ui-font-size); }
   .proj-win  { color: var(--green); font-weight: 700; font-size: var(--ui-font-size); }
-  .proj-risk { color: var(--red);   font-weight: 600; font-size: var(--ui-font-size); }
+  .proj-risk { color: var(--red);   font-weight: 700; font-size: var(--ui-font-size); }
 
   /* Platform allocation breakdown */
   .platform-alloc {
@@ -313,10 +314,10 @@
   <!-- Left: Opportunities -->
   <div class="panel">
     <div class="panel-header">
-      <span>OPPORTUNITIES <a href="/api/matches/csv" download="all_scanned_matches.csv" id="match-count" class="bal-link" style="font-weight:400;color:var(--text-muted);font-size:12px;"></a></span>
+      <span>OPPORTUNITIES <a href="/api/matches/csv" download="all_scanned_matches.csv" id="match-count" class="bal-link" style="color:var(--text-muted);"></a></span>
       <span style="display:flex;gap:8px;align-items:center;">
         <span id="execution-mode"></span>
-        <span id="scan-status" style="color:var(--text-muted);font-size:11px;"></span>
+        <span id="scan-status" style="color:var(--text-muted);"></span>
         <button class="btn btn-sm" id="auth-action" style="display:none;" onclick="logout()">Logout</button>
         <button class="btn btn-sm" onclick="doScan(true)">Rescan</button>
       </span>
@@ -337,7 +338,7 @@
         </span>
       </div>
       <div class="bal-item">
-        <span class="bal-label" id="bal-total" style="color:var(--text-muted);font-size:11px;"></span>
+        <span class="bal-label" id="bal-total" style="color:var(--text-muted);"></span>
       </div>
     </div>
 
@@ -362,8 +363,11 @@
   <!-- Right: Bets -->
   <div class="panel">
     <div class="panel-header">
-      <span>PLACED BETS <span id="bet-count" style="font-weight:400;color:var(--text-muted);font-size:12px;"></span></span>
-      <button class="btn btn-sm" onclick="doResolve()">Check Results</button>
+      <span>PLACED BETS <span id="bet-count" style="color:var(--text-muted);"></span></span>
+      <span style="display:flex;gap:8px;align-items:center;">
+        <span id="resolve-status" style="color:var(--text-muted);"></span>
+        <button class="btn btn-sm" onclick="doResolve()">Check Results</button>
+      </span>
     </div>
 
     <div id="pnl-bar">
@@ -776,8 +780,8 @@ async function fetchBalances() {
     balances = data;
     const kalEl  = document.getElementById('bal-kalshi');
     const polyEl = document.getElementById('bal-poly');
-    kalEl.textContent  = data.kalshi      != null ? `$${data.kalshi.toFixed(2)}`      : 'deposit ↗';
-    polyEl.textContent = data.polymarket  != null ? `$${data.polymarket.toFixed(2)}`  : 'deposit ↗';
+    kalEl.textContent  = data.kalshi      != null ? `$${data.kalshi.toFixed(2)}`      : 'deposit';
+    polyEl.textContent = data.polymarket  != null ? `$${data.polymarket.toFixed(2)}`  : 'deposit';
 
     const total = (data.kalshi || 0) + (data.polymarket || 0);
     const totalEl = document.getElementById('bal-total');
@@ -785,21 +789,22 @@ async function fetchBalances() {
       totalEl.textContent = `Total $${total.toFixed(2)}`;
     }
   } catch (e) {
-    document.getElementById('bal-kalshi').textContent  = 'deposit ↗';
-    document.getElementById('bal-poly').textContent    = 'deposit ↗';
+    document.getElementById('bal-kalshi').textContent  = 'deposit';
+    document.getElementById('bal-poly').textContent    = 'deposit';
   }
 }
 
 async function doResolve() {
-  const status = document.getElementById('scan-status');
-  const prev = status.textContent;
-  status.textContent = 'Checking results…';
+  const status = document.getElementById('resolve-status');
+  if (!status) return;
+  status.textContent = 'Checking...';
   try {
     const data = await api('POST', '/api/resolve');
     await fetchBalances();
-    status.textContent = data.resolved > 0 ? `Resolved ${data.resolved} bet(s)!` : prev;
+    const t = new Date().toLocaleTimeString();
+    status.textContent = data.resolved > 0 ? `Resolved ${data.resolved} bet(s)!` : `${t}`;
     if (data.resolved > 0) fetchBets();
-  } catch (e) { status.textContent = prev; }
+  } catch (e) { status.textContent = 'Error checking results'; }
 }
 
 // ═══════════════════════════════════════════════════════════════

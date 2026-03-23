@@ -529,6 +529,15 @@ class PolymarketClient(PlatformClient):
                 except (ValueError, TypeError):
                     pass
 
+        # Apply date filters to match Kalshi's typical window
+        from datetime import timedelta
+        now_utc = datetime.now(timezone.utc)
+        if kickoff:
+            if kickoff < now_utc - timedelta(days=1):
+                return None
+            #if kickoff > now_utc + timedelta(days=14):
+            #    return None
+
         # Snapshot and serve pre-kickoff reference prices
         event_slug = markets[0].get("event_slug") or markets[0].get("slug", "")
         now_utc = datetime.now(timezone.utc)
