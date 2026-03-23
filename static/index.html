@@ -823,7 +823,8 @@ async function openBetModal(idx) {
     document.getElementById('bet-slider').value = 10;
     document.getElementById('slider-display').textContent = "...";
     document.getElementById('modal-profit').textContent = "...";
-    document.getElementById('modal-risk').textContent = "";
+    const riskEl = document.getElementById('modal-risk');
+    if (riskEl) riskEl.textContent = "";
     document.getElementById('bet-modal').classList.add('open');
     
     // Prevent actions while refreshing

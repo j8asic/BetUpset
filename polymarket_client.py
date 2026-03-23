@@ -227,6 +227,8 @@ class PolymarketClient(PlatformClient):
         "uecl",                  # UEFA Conference League
         # International tournaments
         "fifa-world-cup",        # FIFA World Cup
+        "fifa-friendly",         # International Friendlies
+        "uef-qualifiers",        # Europe WC Qualifiers
         # Domestic cups
         "efl-cup",               # EFL Cup (Carabao Cup)
         "copa-del-rey",          # Copa del Rey
