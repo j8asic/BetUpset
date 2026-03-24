@@ -334,7 +334,11 @@ class KalshiClient(PlatformClient):
             if yes_price is None or yes_price <= 0:
                 continue
 
-            volume = float(market.get("volume_fp") or market.get("volume") or 0)
+            # Kalshi's volume_fp is historical daily volume. For actual orderbook liquidity, 
+            # we want the immediate top-of-book size at the listed ask price. yes_ask_size_fp is in contracts (1 contract pays out $1).
+            # To get liquidity in dollars at this price level, multiply by yes_price.
+            liq_contracts = float(market.get("yes_ask_size_fp") or market.get("liquidity_dollars") or 0)
+            liq = liq_contracts * yes_price
 
             # Classify outcome
             outcome = self._classify_market_outcome(
@@ -346,10 +350,10 @@ class KalshiClient(PlatformClient):
             if outcome not in prices or yes_price > prices[outcome]:
                 # Keep the HIGHEST price for this outcome — the clean
                 # match-result market (e.g. "Bayern win") has a higher
-                # probability than compound/prop sub-markets.
+                # matches the probability better than compound/prop sub-markets.
                 prices[outcome] = yes_price
                 market_ids[outcome] = m_ticker
-                liquidity[outcome] = volume
+                liquidity[outcome] = liq
 
         if len(prices) < 2:
             return None

@@ -426,7 +426,7 @@
       <input type="range" id="bet-slider" min="1" max="100" value="10"
              oninput="onSliderChange(this.value)">
       <div class="slider-limits">
-        <span>$1</span>
+        <span id="slider-min-label">$1</span>
         <span id="slider-max-label">$100</span>
       </div>
     </div>
@@ -821,8 +821,14 @@ async function openBetModal(idx) {
   if (lastScannedAt > 0 && (nowSec - lastScannedAt) > 15) {
     document.getElementById('modal-title').textContent = "Refreshing live prices...";
     document.getElementById('bet-slider').value = 10;
-    document.getElementById('slider-display').textContent = "...";
+    document.getElementById('slider-display').textContent = "Waiting for live orderbook...";
     document.getElementById('modal-profit').textContent = "...";
+    document.getElementById('alloc-poly-outcome').textContent = "Loading...";
+    document.getElementById('alloc-poly-amount').textContent = "...";
+    document.getElementById('alloc-poly-limit').textContent = "";
+    document.getElementById('alloc-kalshi-outcome').textContent = "Loading...";
+    document.getElementById('alloc-kalshi-amount').textContent = "...";
+    document.getElementById('alloc-kalshi-limit').textContent = "";
     const riskEl = document.getElementById('modal-risk');
     if (riskEl) riskEl.textContent = "";
     document.getElementById('bet-modal').classList.add('open');
@@ -881,20 +887,21 @@ async function openBetModal(idx) {
   if (kalshiSF > 0 && kalshiBal != null) maxFromBal = Math.min(maxFromBal, Math.floor(kalshiBal / kalshiSF));
 
   // Constraint 2: liquidity of covered outcomes (cap at 5% of available depth)
+  let maxFromLiq = 100000;
   const polyCovLiq   = m.poly_covered_liq   || 0;
   const kalshiCovLiq = m.kalshi_covered_liq || 0;
-  let maxFromLiq = 100000;
-  if (polySF > 0   && polyCovLiq > 0)   maxFromLiq = Math.min(maxFromLiq, Math.floor(polyCovLiq   * polySF   * liqFraction));
-  if (kalshiSF > 0 && kalshiCovLiq > 0) maxFromLiq = Math.min(maxFromLiq, Math.floor(kalshiCovLiq * kalshiSF * liqFraction));
+
+  if (polySF > 0   && polyCovLiq > 0)   maxFromLiq = Math.min(maxFromLiq, Math.floor((polyCovLiq * liqFraction) / polySF));
+  if (kalshiSF > 0 && kalshiCovLiq > 0) maxFromLiq = Math.min(maxFromLiq, Math.floor((kalshiCovLiq * liqFraction) / kalshiSF));
 
   let sliderMax = Math.min(maxFromBal, maxFromLiq, 10000);
   if (executionPolicy?.max_stake_per_trade > 0) {
     sliderMax = Math.min(sliderMax, Math.floor(executionPolicy.max_stake_per_trade));
   }
   
-  // Minimum constraint: At least $10, and enough for 5 Polymarket shares
+  // Minimum constraint: exactly enough for 5 shares
   const costPerShare = m.price_a + m.price_b;
-  const minSliderVal = Math.max(10, Math.ceil(5 * costPerShare));
+  const minSliderVal = Math.max(1, Math.ceil(5 * costPerShare)); // At least $1, but minimum 5 shares
   sliderMax = Math.max(sliderMax, minSliderVal);
 
   // Default is based on the match SCORE (0-10) mapping linearly from min to max
@@ -906,6 +913,7 @@ async function openBetModal(idx) {
   slider.min   = minSliderVal;
   slider.value = Math.min(defaultStake, sliderMax);
   document.getElementById('slider-max-label').textContent = `$${sliderMax}`;
+  document.getElementById('slider-min-label').textContent = `$${minSliderVal}`;
 
   onSliderChange(slider.value);
   document.getElementById('bet-modal').classList.add('open');
@@ -973,7 +981,11 @@ function onSliderChange(val) {
   const limLabel = (bal, liq, sf) => {
     const parts = [];
     if (bal   != null && sf > 0) parts.push(`bal: $${bal.toFixed(0)}`);
-    if (liq   > 0    && sf > 0) parts.push(`liq: $${(liq * sf * liqFraction).toFixed(0)} (${(liqFraction * 100).toFixed(0)}%)`);
+    if (liq   > 0    && sf > 0) {
+      const allowed = (liq * liqFraction) / sf;
+      const textVal = allowed < 1 ? allowed.toFixed(2) : allowed.toFixed(0);
+      parts.push(`liq: $${textVal} limit (${(liqFraction * 100).toFixed(0)}% of max)`);
+    }
     return parts.join('  ·  ');
   };
   document.getElementById('alloc-poly-limit').textContent =

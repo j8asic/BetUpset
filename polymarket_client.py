@@ -407,7 +407,8 @@ class PolymarketClient(PlatformClient):
             # Extract YES token ID for CLOB order placement
             yes_token = self._extract_yes_token(market)
 
-            volume = float(market.get("volume", 0) or 0)
+            # Polymarket 'volume' is historical daily volume. For orderbook depth, use 'liquidity'
+            liq = float(market.get("liquidity", 0) or 0)
 
             # Classify: DRAW or WINNER?
             # For home/away we require "win" or "beat" in the question so that
@@ -418,7 +419,7 @@ class PolymarketClient(PlatformClient):
                 if "draw" not in prices or yes_price < prices["draw"]:
                     prices["draw"] = yes_price
                     market_ids["draw"] = market_id
-                    liquidity["draw"] = volume
+                    liquidity["draw"] = liq
                     if yes_token:
                         clob_tokens["draw"] = yes_token
             elif is_win_question and team_found_in_text(home_variants, q_lower):
@@ -426,14 +427,14 @@ class PolymarketClient(PlatformClient):
                     # Keep HIGHEST price (most accurate win market, not a prop)
                     prices["home"] = yes_price
                     market_ids["home"] = market_id
-                    liquidity["home"] = volume
+                    liquidity["home"] = liq
                     if yes_token:
                         clob_tokens["home"] = yes_token
             elif is_win_question and team_found_in_text(away_variants, q_lower):
                 if "away" not in prices or yes_price > prices["away"]:
                     prices["away"] = yes_price
                     market_ids["away"] = market_id
-                    liquidity["away"] = volume
+                    liquidity["away"] = liq
                     if yes_token:
                         clob_tokens["away"] = yes_token
 

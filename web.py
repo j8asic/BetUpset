@@ -497,6 +497,11 @@ class PlaceBetRequest(BaseModel):
     price_b: float = 0.0
     poly_covered_liq: float = 0.0
     kalshi_covered_liq: float = 0.0
+    poly_stake_fraction: float = 0.0
+    kalshi_stake_fraction: float = 0.0
+    pre_kickoff_home: float = 0.0
+    pre_kickoff_draw: float = 0.0
+    pre_kickoff_away: float = 0.0
     scanned_at: float = 0.0
 
 
