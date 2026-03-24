@@ -53,7 +53,7 @@ class TestDetectOpportunity:
             kalshi_prices={"home": 0.52, "draw": 0.28, "away": 0.10},
         )
         config = StrategyConfig(min_gap=0.03, max_reject_prob=0.15)
-        opp = detect_opportunity(match, config, bankroll=10000)
+        opp = detect_opportunity(match, config)
 
         assert opp is not None
         assert opp.rejected_outcome == "away"
@@ -70,13 +70,13 @@ class TestDetectOpportunity:
         config = StrategyConfig(min_gap=0.03)
         opp = detect_opportunity(match, config)
         # gap = 1 - 0.48 - 0.40 = 0.12... actually this might pass
-        # Let's make it tighter
+        # Let's make the gap truly too small (<= 0.03)
         match2 = _make_cross_match(
-            poly_prices={"home": 0.50, "draw": 0.46, "away": 0.06},
-            kalshi_prices={"home": 0.49, "draw": 0.47, "away": 0.07},
+            poly_prices={"home": 0.50, "draw": 0.48, "away": 0.06},
+            kalshi_prices={"home": 0.51, "draw": 0.50, "away": 0.07},
         )
         opp2 = detect_opportunity(match2, config)
-        assert opp2 is None  # gap = 1 - 0.46 - 0.49 = 0.05, reject=0.06, safety: 0.06 >= 0.05*0.6=0.03 fails
+        assert opp2 is None  # gap = 1 - 0.48 - 0.50 = 0.02 (<= 0.03)
 
     def test_no_opportunity_reject_too_high(self):
         """When the rejected outcome is too likely, skip."""
@@ -95,7 +95,7 @@ class TestDetectOpportunity:
             kalshi_prices={"home": 0.50, "draw": 0.28, "away": 0.10},
         )
         config = StrategyConfig(min_gap=0.03, max_reject_prob=0.15)
-        opp = detect_opportunity(match, config, bankroll=10000)
+        opp = detect_opportunity(match, config)
 
         assert opp is not None
         # Should pick Kalshi's home (0.50) and Poly's draw (0.25)
@@ -104,16 +104,18 @@ class TestDetectOpportunity:
         assert opp.price_b == 0.50  # home
         assert opp.rejected_price == 0.08
 
-    def test_stake_calculation(self):
-        """Verify stake = bankroll * bet_fraction."""
+
+    def test_prohibit_intramarket_arbitrage(self):
+        """Should reject if both covered legs are on the same platform."""
         match = _make_cross_match(
-            poly_prices={"home": 0.50, "draw": 0.30, "away": 0.05},
-            kalshi_prices={"home": 0.52, "draw": 0.28, "away": 0.07},
+            # Polymarket has a massive intramarket arb (home 0.50 + draw 0.40 = 0.90, away 0.05)
+            poly_prices={"home": 0.50, "draw": 0.40, "away": 0.05},
+            # Kalshi has terrible prices, meaning both covered legs would naturally default to Polymarket
+            kalshi_prices={"home": 0.60, "draw": 0.60, "away": 0.60},
         )
-        config = StrategyConfig(bet_fraction=0.02)
-        opp = detect_opportunity(match, config, bankroll=10000)
-        assert opp is not None
-        assert opp.stake == pytest.approx(200.0)  # 2% of 10000
+        config = StrategyConfig(min_gap=0.03, max_reject_prob=0.15)
+        opp = detect_opportunity(match, config)
+        assert opp is None
 
     def test_only_two_outcomes_priced_returns_none(self):
         """If a platform only has 2 outcomes, and the other has none, skip."""

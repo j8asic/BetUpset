@@ -16,7 +16,6 @@ from config import StrategyConfig
 def detect_opportunity(
     match: CrossPlatformMatch,
     config: StrategyConfig,
-    bankroll: float = 10000.0,
 ) -> Optional[ArbOpportunity]:
     """
     Detect an arbitrage opportunity in a cross-platform match.
@@ -26,12 +25,11 @@ def detect_opportunity(
     2. Sort by price, reject the lowest (least likely outcome)
     3. Calculate gap = 1 - P_a - P_b
     4. Apply filters: MIN_GAP, MAX_REJECT_PROB
-    5. Calculate ROI and stake
+    5. Calculate ROI
 
     Args:
         match: Cross-platform match with prices from multiple platforms
         config: Strategy configuration (thresholds and parameters)
-        bankroll: Current bankroll for stake calculation
 
     Returns:
         ArbOpportunity if filters pass, None otherwise
@@ -92,13 +90,11 @@ def detect_opportunity(
     if p_reject > config.max_reject_prob:
         return None
 
-    # Step 5: Calculate metrics
-    total_cost = p_a + p_b
-    roi = gap / total_cost if total_cost > 0 else 0
+    # Prohibit intra-market arbitrage (both legs on the same platform)
+    if best[covered[0]]["platform"] == best[covered[1]]["platform"]:
+        return None
 
-    # Stake calculation
-    stake = bankroll * config.bet_fraction
-    shares = stake / total_cost if total_cost > 0 else 0
+    # Step 5: Return opportunity if it passed filters
 
     return ArbOpportunity(
         match_key=match.match_key,
@@ -117,17 +113,12 @@ def detect_opportunity(
         rejected_outcome=rejected,
         rejected_price=p_reject,
         rejected_platform=best[rejected]["platform"],
-        gap=gap,
-        roi_if_win=roi,
-        shares=shares,
-        stake=stake,
     )
 
 
 def detect_all_opportunities(
     matches: list[CrossPlatformMatch],
     config: StrategyConfig,
-    bankroll: float = 10000.0,
 ) -> list[ArbOpportunity]:
     """
     Scan all cross-platform matches for arbitrage opportunities.
@@ -136,7 +127,7 @@ def detect_all_opportunities(
     """
     opportunities = []
     for match in matches:
-        opp = detect_opportunity(match, config, bankroll)
+        opp = detect_opportunity(match, config)
         if opp:
             opportunities.append(opp)
 
@@ -145,15 +136,17 @@ def detect_all_opportunities(
     return opportunities
 
 
-def format_opportunity(opp: ArbOpportunity) -> str:
+def format_opportunity(opp: ArbOpportunity, stake: float = 100.0) -> str:
     """Format an opportunity for console display."""
+    cost = opp.price_a + opp.price_b
+    shares = stake / cost if cost > 0 else 0
     lines = [
         f"  {opp.home_team} vs {opp.away_team}",
         f"  Gap: {opp.gap:.1%} | ROI: {opp.roi_if_win:.1%}",
         f"  Cover {opp.outcome_a} @ ${opp.price_a:.3f} on {opp.platform_a}",
         f"  Cover {opp.outcome_b} @ ${opp.price_b:.3f} on {opp.platform_b}",
         f"  Reject {opp.rejected_outcome} @ ${opp.rejected_price:.3f} ({opp.rejected_platform})",
-        f"  Stake: ${opp.stake:.2f} ({opp.shares:.1f} shares)",
+        f"  Suggested Stake: ${stake:.2f} ({shares:.1f} shares)",
     ]
     if opp.kickoff:
         lines.insert(1, f"  Kickoff: {opp.kickoff.strftime('%Y-%m-%d %H:%M UTC')}")

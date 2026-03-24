@@ -205,6 +205,41 @@ def _enrich_bets_with_kickoff(bets: list[dict]) -> list[dict]:
     return bets
 
 
+def _enrich_bets_with_metrics(bets: list[dict]) -> list[dict]:
+    """Calculate derived metrics that are no longer stored in the DB on the fly."""
+    for bet in bets:
+        stake = float(bet.get("stake", 0.0) or 0.0)
+        rejected = bet.get("rejected", "home")
+        best_home = float(bet.get("best_home", 0.0) or 0.0)
+        best_draw = float(bet.get("best_draw", 0.0) or 0.0)
+        best_away = float(bet.get("best_away", 0.0) or 0.0)
+        rejected_price = float(bet.get("rejected_price", 0.0) or 0.0)
+        
+        cost = 1.0
+        if rejected == "home":
+            cost = best_draw + best_away
+        elif rejected == "draw":
+            cost = best_home + best_away
+        elif rejected == "away":
+            cost = best_home + best_draw
+            
+        roi = (1.0 - cost) / cost if cost > 0 else 0.0
+        win_prob = max(0.0, 1.0 - rejected_price)
+        prob_for_score = max(win_prob - 0.6667, 0.0) / 0.3333
+        score = min(10.0, round(roi * prob_for_score * prob_for_score * 100, 0))
+        
+        shares = stake / cost if cost > 0 else 0.0
+        profit_if_win = shares * (1.0 - cost)
+        
+        bet["roi"] = round(roi, 4)
+        bet["win_prob"] = round(win_prob, 4)
+        bet["score"] = score
+        bet["profit_if_win"] = round(profit_if_win, 2)
+        bet["loss_if_reject"] = round(stake, 2)
+        
+    return bets
+
+
 def _get_execution_config():
     from config import ExecutionConfig, load_config
 
@@ -533,6 +568,7 @@ async def bets_list(request: Request):
     tracker = get_tracker()
     bets = tracker.get_all_bets()
     bets = await asyncio.to_thread(_enrich_bets_with_kickoff, bets)
+    bets = _enrich_bets_with_metrics(bets)
     pnl = tracker.get_bets_pnl()
     return {"bets": bets, "pnl": pnl}
 

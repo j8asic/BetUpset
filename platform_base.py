@@ -59,11 +59,15 @@ class ArbOpportunity:
     rejected_outcome: str
     rejected_price: float
     rejected_platform: str
-    # Metrics
-    gap: float                             # 1 - price_a - price_b
-    roi_if_win: float                      # gap / (price_a + price_b)
-    shares: float = 0.0                    # N shares to buy of each outcome
-    stake: float = 0.0                     # total cost = shares * (price_a + price_b)
+    # Metrics (Computed dynamically)
+    @property
+    def gap(self) -> float:
+        return 1.0 - (self.price_a + self.price_b)
+
+    @property
+    def roi_if_win(self) -> float:
+        cost = self.price_a + self.price_b
+        return (1.0 - cost) / cost if cost > 0 else 0.0
 
 
 @dataclass

@@ -174,8 +174,8 @@ class TestGroupMatchesByEvent:
             prices={"home": 0.50},
         )
         groups = group_matches_by_event([match1, match2])
-        # Single-platform matches are filtered out
-        assert len(groups) == 0
+        # Single-platform matches are no longer filtered out (due to CSV export requirements)
+        assert len(groups) == 2
 
     def test_single_platform_excluded(self):
         """A match only on one platform should be excluded."""
@@ -186,5 +186,6 @@ class TestGroupMatchesByEvent:
             kickoff=None, league="EPL",
             prices={"home": 0.55},
         )
+        # Single platform matches are no longer excluded to allow CSV export
         groups = group_matches_by_event([match])
-        assert len(groups) == 0
+        assert len(groups) == 1

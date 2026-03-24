@@ -44,9 +44,6 @@ class PortfolioTracker:
                 price_b REAL,
                 rejected_outcome TEXT,
                 rejected_price REAL,
-                gap REAL,
-                roi_if_win REAL,
-                shares REAL,
                 stake REAL,
                 status TEXT DEFAULT 'open'
             );
@@ -56,17 +53,8 @@ class PortfolioTracker:
                 match_key TEXT NOT NULL,
                 result TEXT NOT NULL,
                 settled_at TEXT NOT NULL,
-                pnl REAL NOT NULL,
                 trade_id INTEGER,
                 FOREIGN KEY (trade_id) REFERENCES trades(id)
-            );
-
-            CREATE TABLE IF NOT EXISTS bankroll_snapshots (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                total_balance REAL NOT NULL,
-                polymarket_balance REAL DEFAULT 0,
-                kalshi_balance REAL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS bets (
@@ -79,13 +67,8 @@ class PortfolioTracker:
                 best_home       REAL NOT NULL,
                 best_draw       REAL NOT NULL,
                 best_away       REAL NOT NULL,
-                roi             REAL NOT NULL,
-                win_prob        REAL NOT NULL,
-                score           REAL NOT NULL,
                 rejected        TEXT NOT NULL,
                 rejected_price  REAL NOT NULL,
-                profit_if_win   REAL NOT NULL,
-                loss_if_reject  REAL NOT NULL,
                 result          TEXT NOT NULL DEFAULT 'PENDING',
                 placed_at       TEXT NOT NULL,
                 polymarket_url  TEXT DEFAULT '',
@@ -122,7 +105,7 @@ class PortfolioTracker:
                 writer.writerow([
                     "Timestamp", "Match", "League", "Outcome_A", "Platform_A",
                     "Price_A", "Outcome_B", "Platform_B", "Price_B",
-                    "Rejected", "Rejected_Price", "Gap", "ROI", "Stake",
+                    "Rejected", "Rejected_Price", "Stake",
                 ])
 
     def record_opportunity(self, opp: ArbOpportunity):
@@ -144,12 +127,10 @@ class PortfolioTracker:
                 f"{opp.price_b:.4f}",
                 opp.rejected_outcome,
                 f"{opp.rejected_price:.4f}",
-                f"{opp.gap:.4f}",
-                f"{opp.roi_if_win:.4f}",
-                f"{opp.stake:.2f}",
+                f"{0.0:.2f}",
             ])
 
-    def record_trade(self, opp: ArbOpportunity) -> int:
+    def record_trade(self, opp: ArbOpportunity, stake: float) -> int:
         """Record an executed trade. Returns the trade ID."""
         timestamp = datetime.now(timezone.utc).isoformat()
         conn = sqlite3.connect(self.db_path)
@@ -158,16 +139,14 @@ class PortfolioTracker:
                 match_key, timestamp, home_team, away_team, kickoff, league,
                 outcome_a, platform_a, market_id_a, price_a,
                 outcome_b, platform_b, market_id_b, price_b,
-                rejected_outcome, rejected_price, gap, roi_if_win,
-                shares, stake, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                rejected_outcome, rejected_price, stake, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 opp.match_key, timestamp, opp.home_team, opp.away_team,
                 opp.kickoff.isoformat() if opp.kickoff else None, opp.league,
                 opp.outcome_a, opp.platform_a, opp.market_id_a, opp.price_a,
                 opp.outcome_b, opp.platform_b, opp.market_id_b, opp.price_b,
-                opp.rejected_outcome, opp.rejected_price, opp.gap, opp.roi_if_win,
-                opp.shares, opp.stake, "open",
+                opp.rejected_outcome, opp.rejected_price, stake, "open",
             ),
         )
         conn.commit()
@@ -188,9 +167,9 @@ class PortfolioTracker:
         trade_id = row[0] if row else None
 
         conn.execute(
-            "INSERT INTO settlements (match_key, result, settled_at, pnl, trade_id) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (match_key, result, timestamp, pnl, trade_id),
+            "INSERT INTO settlements (match_key, result, settled_at, trade_id) "
+            "VALUES (?, ?, ?, ?)",
+            (match_key, result, timestamp, trade_id),
         )
 
         if trade_id:
@@ -202,23 +181,7 @@ class PortfolioTracker:
         conn.commit()
         conn.close()
 
-    def record_bankroll_snapshot(
-        self,
-        total: float,
-        polymarket: float = 0,
-        kalshi: float = 0,
-    ):
-        """Record a bankroll snapshot."""
-        timestamp = datetime.now(timezone.utc).isoformat()
-        conn = sqlite3.connect(self.db_path)
-        conn.execute(
-            "INSERT INTO bankroll_snapshots "
-            "(timestamp, total_balance, polymarket_balance, kalshi_balance) "
-            "VALUES (?, ?, ?, ?)",
-            (timestamp, total, polymarket, kalshi),
-        )
-        conn.commit()
-        conn.close()
+
 
     def get_open_positions(self) -> list[dict]:
         """Get all currently open positions."""
@@ -234,17 +197,27 @@ class PortfolioTracker:
         """Get P&L summary across all settled trades."""
         conn = sqlite3.connect(self.db_path)
 
-        total_pnl = conn.execute(
-            "SELECT COALESCE(SUM(pnl), 0) FROM settlements"
-        ).fetchone()[0]
+        row = conn.execute(
+            """
+            SELECT 
+                COUNT(*),
+                COALESCE(SUM(
+                    CASE 
+                        WHEN s.result = t.rejected_outcome THEN -t.stake
+                        ELSE (t.stake / (t.price_a + t.price_b)) - t.stake
+                    END
+                ), 0),
+                SUM(CASE WHEN s.result != t.rejected_outcome THEN 1 ELSE 0 END),
+                SUM(CASE WHEN s.result = t.rejected_outcome THEN 1 ELSE 0 END)
+            FROM settlements s
+            JOIN trades t ON s.trade_id = t.id
+            """
+        ).fetchone()
 
-        wins = conn.execute(
-            "SELECT COUNT(*) FROM settlements WHERE pnl > 0"
-        ).fetchone()[0]
-
-        losses = conn.execute(
-            "SELECT COUNT(*) FROM settlements WHERE pnl <= 0"
-        ).fetchone()[0]
+        total_settled_trades = row[0] if row else 0
+        total_pnl = row[1] if row else 0
+        wins = row[2] if row else 0
+        losses = row[3] if row else 0
 
         total_trades = conn.execute(
             "SELECT COUNT(*) FROM trades"
@@ -278,8 +251,7 @@ class PortfolioTracker:
     _BET_COLUMNS = [
         "match_key", "date", "kickoff_iso", "home_team", "away_team",
         "best_home", "best_draw", "best_away",
-        "roi", "win_prob", "score",
-        "rejected", "rejected_price", "profit_if_win", "loss_if_reject",
+        "rejected", "rejected_price",
         "result", "placed_at",
         "polymarket_url", "kalshi_url",
         "poly_market_id", "kalshi_market_id",
@@ -352,13 +324,24 @@ class PortfolioTracker:
         """Compute P&L summary for simulator bets."""
         conn = sqlite3.connect(self.db_path)
         passes = conn.execute(
-            "SELECT COUNT(*), COALESCE(SUM(profit_if_win), 0) FROM bets WHERE result = 'PASS'"
+            """
+            SELECT COUNT(*), COALESCE(SUM(
+                (stake / (
+                    CASE rejected
+                        WHEN 'home' THEN best_draw + best_away
+                        WHEN 'draw' THEN best_home + best_away
+                        WHEN 'away' THEN best_home + best_draw
+                        ELSE 1.0
+                    END
+                )) - stake
+            ), 0) FROM bets WHERE result = 'PASS'
+            """
         ).fetchone()
         fails = conn.execute(
-            "SELECT COUNT(*), COALESCE(SUM(loss_if_reject), 0) FROM bets WHERE result = 'FAIL'"
+            "SELECT COUNT(*), COALESCE(SUM(stake), 0) FROM bets WHERE result = 'FAIL'"
         ).fetchone()
         pending = conn.execute(
-            "SELECT COUNT(*), COALESCE(SUM(CASE WHEN stake > 0 THEN stake ELSE loss_if_reject END), 0) FROM bets WHERE result = 'PENDING'"
+            "SELECT COUNT(*), COALESCE(SUM(stake), 0) FROM bets WHERE result = 'PENDING'"
         ).fetchone()
         conn.close()
 
@@ -392,16 +375,13 @@ class PortfolioTracker:
                     """INSERT INTO bets (
                         match_key, date, kickoff_iso, home_team, away_team,
                         best_home, best_draw, best_away,
-                        roi, win_prob, score,
-                        rejected, rejected_price, profit_if_win, loss_if_reject,
+                        rejected, rejected_price,
                         result, placed_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         r["match_key"], r["date"], r.get("kickoff_iso", ""), r["home_team"], r["away_team"],
                         float(r["best_home"]), float(r["best_draw"]), float(r["best_away"]),
-                        float(r["roi"]), float(r["win_prob"]), float(r["score"]),
                         r["rejected"], float(r["rejected_price"]),
-                        float(r["profit_if_win"]), float(r["loss_if_reject"]),
                         r["result"], r["placed_at"],
                     ),
                 )

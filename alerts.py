@@ -28,8 +28,7 @@ class AlertManager:
             f"  Gap: {opp.gap:.1%} | ROI: {opp.roi_if_win:.1%}\n"
             f"  Cover {opp.outcome_a} @ ${opp.price_a:.3f} ({opp.platform_a})\n"
             f"  Cover {opp.outcome_b} @ ${opp.price_b:.3f} ({opp.platform_b})\n"
-            f"  Reject {opp.rejected_outcome} @ ${opp.rejected_price:.3f}\n"
-            f"  Stake: ${opp.stake:.2f}"
+            f"  Reject {opp.rejected_outcome} @ ${opp.rejected_price:.3f}"
         )
 
         if self.config.console:
@@ -37,14 +36,14 @@ class AlertManager:
         if self._telegram_available:
             self._telegram(msg)
 
-    def trade_executed(self, opp: ArbOpportunity, success: bool, details: str = ""):
+    def trade_executed(self, opp: ArbOpportunity, stake: float, success: bool, details: str = ""):
         """Alert when a trade is executed (or fails)."""
         status = "SUCCESS" if success else "FAILED"
         msg = (
             f"TRADE {status}: {opp.home_team} vs {opp.away_team}\n"
             f"  {opp.outcome_a} on {opp.platform_a} + "
             f"{opp.outcome_b} on {opp.platform_b}\n"
-            f"  Stake: ${opp.stake:.2f}"
+            f"  Stake: ${stake:.2f}"
         )
         if details:
             msg += f"\n  {details}"

@@ -29,6 +29,7 @@ class RiskManager:
     def check_trade(
         self,
         opportunity: ArbOpportunity,
+        stake: float,
         open_positions: list[dict],
     ) -> RiskDecision:
         """
@@ -36,6 +37,7 @@ class RiskManager:
 
         Args:
             opportunity: The proposed trade
+            stake: The intended investment amount
             open_positions: List of currently open positions (from tracker)
 
         Returns:
@@ -46,20 +48,20 @@ class RiskManager:
             pos.get("stake", 0) for pos in open_positions
             if pos.get("match_key") == opportunity.match_key
         )
-        if match_exposure + opportunity.stake > self.config.max_exposure_per_match:
+        if match_exposure + stake > self.config.max_exposure_per_match:
             return RiskDecision(
                 approved=False,
                 reason=f"Max exposure per match: ${match_exposure:.0f} + "
-                       f"${opportunity.stake:.0f} > ${self.config.max_exposure_per_match:.0f}",
+                       f"${stake:.0f} > ${self.config.max_exposure_per_match:.0f}",
             )
 
         # 3. Max total exposure across all open trades
         total_exposure = sum(pos.get("stake", 0) for pos in open_positions)
-        if total_exposure + opportunity.stake > self.config.max_total_exposure:
+        if total_exposure + stake > self.config.max_total_exposure:
             return RiskDecision(
                 approved=False,
                 reason=f"Max total exposure: ${total_exposure:.0f} + "
-                       f"${opportunity.stake:.0f} > ${self.config.max_total_exposure:.0f}",
+                       f"${stake:.0f} > ${self.config.max_total_exposure:.0f}",
             )
 
         # 4. Max matchday exposure (% of bankroll on same day)
@@ -69,18 +71,18 @@ class RiskManager:
                 if _same_matchday(pos.get("kickoff"), opportunity.kickoff)
             )
             max_day = self.current_bankroll * self.config.max_matchday_exposure_pct
-            if same_day_exposure + opportunity.stake > max_day:
+            if same_day_exposure + stake > max_day:
                 return RiskDecision(
                     approved=False,
                     reason=f"Max matchday exposure: ${same_day_exposure:.0f} + "
-                           f"${opportunity.stake:.0f} > ${max_day:.0f} "
+                           f"${stake:.0f} > ${max_day:.0f} "
                            f"({self.config.max_matchday_exposure_pct:.0%} of bankroll)",
                 )
 
         # 5. Adjust stake if it would exceed remaining capacity
         remaining_total = self.config.max_total_exposure - total_exposure
         remaining_match = self.config.max_exposure_per_match - match_exposure
-        max_allowed = min(remaining_total, remaining_match, opportunity.stake)
+        max_allowed = min(remaining_total, remaining_match, stake)
 
         return RiskDecision(
             approved=True,
