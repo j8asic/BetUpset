@@ -1016,7 +1016,15 @@ async function confirmBet() {
     return;
   }
 
-  // Step 2: Analyse results
+  // Step 2: Override original scan prices with exact fill limit prices
+  if (execution[betData.platform_a]?.executed_limit_price) {
+    betData.price_a = execution[betData.platform_a].executed_limit_price;
+  }
+  if (execution[betData.platform_b]?.executed_limit_price) {
+    betData.price_b = execution[betData.platform_b].executed_limit_price;
+  }
+
+  // Step 3: Analyse results
   const platforms = Object.entries(execution);
   const succeeded = platforms.filter(([, info]) => info && info.ok);
   const failed    = platforms.filter(([, info]) => info && !info.ok);

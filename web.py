@@ -540,6 +540,7 @@ async def bets_list(request: Request):
 def _place_single_order(
     platform: str, outcome: str, price: float, shares: int,
     clients: dict, kalshi_ids: dict, poly_ids: dict,
+    price_bump_cents: int = 1
 ) -> dict:
     """Place one order on one platform. Returns status dict with 'ok' bool."""
     client = clients.get(platform)
@@ -551,11 +552,12 @@ def _place_single_order(
         if not ticker:
             return {"error": f"no ticker for {outcome}", "ok": False}
         price_cents = max(1, min(99, round(price * 100)))
+        limit_cents = min(99, price_cents + price_bump_cents)
         try:
-            order_id = client.place_order(ticker, "yes", shares, price_cents)
+            order_id = client.place_order(ticker, "yes", shares, price_cents, price_bump_cents=price_bump_cents)
             return {
                 "order_id": order_id, "ticker": ticker,
-                "outcome": outcome, "count": shares,
+                "outcome": outcome, "count": shares, "executed_limit_price": limit_cents / 100.0,
                 "price_cents": price_cents, "ok": True,
             }
         except Exception as e:
@@ -572,10 +574,14 @@ def _place_single_order(
                 print(f"[Polymarket] Live FOK ask for {outcome}: {live_ask:.4f} (scan: {price:.4f})")
                 price = live_ask
             
-            # place_order will now add a 1-cent bump and use OrderType.FOK internally FOK FOK IOC IOC
-            order_id = client.place_order(token_id, "BUY", shares * price, price)
+            limit_price = min(0.99, price + (price_bump_cents / 100.0))
+            
+            # place_order uses OrderType.FOK internally IOC IOC
+            order_id = client.place_order(
+                token_id, "BUY", shares * price, price, price_bump=(price_bump_cents / 100.0)
+            )
             return {
-                "order_id": order_id, "token_id": token_id,
+                "order_id": order_id, "token_id": token_id, "executed_limit_price": limit_price,
                 "outcome": outcome, "ok": True,
             }
         except Exception as e:
@@ -628,32 +634,70 @@ def _place_orders(bet: dict) -> dict:
     except (json.JSONDecodeError, TypeError):
         pass
 
-    # Place order A
-    res_a = _place_single_order(
-        platform_a, covered_a, price_a, shares, clients, kalshi_ids, poly_ids,
+    # 1. Sort the legs to identify Primary (higher price) vs Secondary (lower price)
+    # The higher the price, the more capital required per share. We execute the most expensive leg first.
+    legs = [
+        {"platform": platform_a, "covered": covered_a, "price": price_a, "is_a": True},
+        {"platform": platform_b, "covered": covered_b, "price": price_b, "is_a": False}
+    ]
+    legs.sort(key=lambda x: x["price"], reverse=True)
+    leg_primary = legs[0]
+    leg_secondary = legs[1]
+
+    # 2. Execute Primary Leg (No loop)
+    res_primary = _place_single_order(
+        leg_primary["platform"], leg_primary["covered"], leg_primary["price"], shares, clients, kalshi_ids, poly_ids, price_bump_cents=1
     )
+    
+    # If primary fails, silently abort the entire arb. No exposure taken.
+    if not res_primary.get("ok"):
+        res_a = res_primary if leg_primary["is_a"] else None
+        res_b = res_primary if not leg_primary["is_a"] else None
+        return {
+            platform_a: res_a, platform_b: res_b,
+            "error": f"Primary leg ({leg_primary['platform']}) failed to fill. Order aborted.", "ok": False
+        }
 
-    # Place order B
-    res_b = _place_single_order(
-        platform_b, covered_b, price_b, shares, clients, kalshi_ids, poly_ids,
-    )
+    # 3. Execute Secondary Leg (Rescue Loop)
+    import time
+    
+    # Calculate the max bump tolerance to break even
+    # We assume the primary leg filled at worst case (base price + 1 cent bump)
+    paid_primary = min(0.99, leg_primary["price"] + 0.01)
+    
+    # The max secondary price before we lose money is 0.99 - paid_primary
+    max_secondary_price = round(0.99 - paid_primary, 2)
+    
+    # Maximum bump in cents we can tolerate on the secondary leg
+    target_secondary_price = leg_secondary["price"]
+    max_bump_cents = int(round((max_secondary_price - target_secondary_price) * 100))
+    
+    # Guarantee standard 1-cent bump minimum
+    max_bump_cents = max(1, max_bump_cents)
+    
+    current_bump = 1
+    res_secondary = {"ok": False}
+    
+    while current_bump <= max_bump_cents:
+        res_secondary = _place_single_order(
+            leg_secondary["platform"], leg_secondary["covered"], leg_secondary["price"], shares, clients, kalshi_ids, poly_ids, price_bump_cents=current_bump
+        )
+        if res_secondary.get("ok"):
+            print(f"[Arb] Secondary leg filled successfully on bump iteration {current_bump}!")
+            break
+            
+        print(f"[Arb] Secondary leg {leg_secondary['platform']} failed with bump +{current_bump}¢. Retrying...")
+        current_bump += 1
+        time.sleep(0.3)  # Brief pause to let book refresh slightly
 
-    # Auto-rollback: if one succeeded and the other failed, cancel the successful one
-    if res_a.get("ok") and not res_b.get("ok"):
-        client_a = clients.get(platform_a)
-        if client_a and hasattr(client_a, "cancel_order"):
-            cancelled = client_a.cancel_order(res_a["order_id"])
-            res_a["cancelled"] = cancelled
-            res_a["ok"] = False
-            res_a["error"] = "rolled back (other side failed)"
+    # Re-assign res_a and res_b based on original orientation
+    res_a = res_primary if leg_primary["is_a"] else res_secondary
+    res_b = res_secondary if leg_primary["is_a"] else res_primary
 
-    elif res_b.get("ok") and not res_a.get("ok"):
-        client_b = clients.get(platform_b)
-        if client_b and hasattr(client_b, "cancel_order"):
-            cancelled = client_b.cancel_order(res_b["order_id"])
-            res_b["cancelled"] = cancelled
-            res_b["ok"] = False
-            res_b["error"] = "rolled back (other side failed)"
+    # 4. Check for catastrophic failure (Legged-In)
+    if not res_secondary.get("ok"):
+        # Could send an emergency alert here or log to a specific error handling queue
+        pass
 
     return {platform_a: res_a, platform_b: res_b}
 
