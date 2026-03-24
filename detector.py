@@ -25,7 +25,7 @@ def detect_opportunity(
     1. Find cheapest price for each outcome across all platforms
     2. Sort by price, reject the lowest (least likely outcome)
     3. Calculate gap = 1 - P_a - P_b
-    4. Apply filters: MIN_GAP, MAX_REJECT_PROB, SAFETY_FACTOR
+    4. Apply filters: MIN_GAP, MAX_REJECT_PROB
     5. Calculate ROI and stake
 
     Args:

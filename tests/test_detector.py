@@ -52,7 +52,7 @@ class TestDetectOpportunity:
             poly_prices={"home": 0.50, "draw": 0.30, "away": 0.08},
             kalshi_prices={"home": 0.52, "draw": 0.28, "away": 0.10},
         )
-        config = StrategyConfig(min_gap=0.03, max_reject_prob=0.15, safety_factor=0.60)
+        config = StrategyConfig(min_gap=0.03, max_reject_prob=0.15)
         opp = detect_opportunity(match, config, bankroll=10000)
 
         assert opp is not None
@@ -88,37 +88,13 @@ class TestDetectOpportunity:
         opp = detect_opportunity(match, config)
         assert opp is None  # min away = 0.18 > 0.15
 
-    def test_safety_factor_filter(self):
-        """P_reject must be < gap * safety_factor."""
-        match = _make_cross_match(
-            poly_prices={"home": 0.45, "draw": 0.42, "away": 0.08},
-            kalshi_prices={"home": 0.44, "draw": 0.43, "away": 0.09},
-        )
-        config = StrategyConfig(min_gap=0.03, max_reject_prob=0.15, safety_factor=0.60)
-        opp = detect_opportunity(match, config)
-        # gap = 1 - 0.42 - 0.44 = 0.14, reject = 0.08
-        # 0.08 < 0.14 * 0.60 = 0.084 -> passes
-        assert opp is not None
-
-    def test_safety_factor_rejects(self):
-        """Safety factor too tight rejects the trade."""
-        match = _make_cross_match(
-            poly_prices={"home": 0.45, "draw": 0.42, "away": 0.10},
-            kalshi_prices={"home": 0.44, "draw": 0.43, "away": 0.09},
-        )
-        # gap = 1 - 0.42 - 0.44 = 0.14, reject = 0.09
-        # 0.09 < 0.14 * 0.30 = 0.042? No, 0.09 >= 0.042 -> rejected
-        config = StrategyConfig(min_gap=0.03, max_reject_prob=0.15, safety_factor=0.30)
-        opp = detect_opportunity(match, config)
-        assert opp is None
-
     def test_picks_cheapest_across_platforms(self):
         """Should use the cheapest price for each outcome regardless of platform."""
         match = _make_cross_match(
             poly_prices={"home": 0.55, "draw": 0.25, "away": 0.08},
             kalshi_prices={"home": 0.50, "draw": 0.28, "away": 0.10},
         )
-        config = StrategyConfig(min_gap=0.03, max_reject_prob=0.15, safety_factor=0.60)
+        config = StrategyConfig(min_gap=0.03, max_reject_prob=0.15)
         opp = detect_opportunity(match, config, bankroll=10000)
 
         assert opp is not None

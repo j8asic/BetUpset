@@ -474,14 +474,16 @@ class KalshiClient(PlatformClient):
             "KALSHI-ACCESS-TIMESTAMP": timestamp,
         }
 
-    def place_order(self, ticker: str, side: str, count: int, price_cents: int) -> Optional[str]:
-        """Place a limit buy order on Kalshi.
+    def place_order(self, ticker: str, side: str, count: int, price_cents: int,
+                    price_bump_cents: int = 1) -> Optional[str]:
+        """Place an IOC limit buy order on Kalshi.
 
         Args:
             ticker: Market ticker (e.g. 'KXEPLGAME-25MAR01-T1.5')
             side: 'yes' or 'no'
             count: Number of contracts (each pays $1 on win)
             price_cents: Price per contract in cents (0-99)
+            price_bump_cents: IOC FOK FOK FOK IOC price bump to cross spread.
 
         Returns order_id string on success, None on failure.
         """
@@ -489,13 +491,16 @@ class KalshiClient(PlatformClient):
             print("[Kalshi] Cannot place order: no private key loaded")
             return None
 
+        limit_price = min(99, price_cents + price_bump_cents)
         path = "/trade-api/v2/portfolio/orders"
         body = {
             "ticker": ticker,
             "side": side,
             "action": "buy",
             "count": count,
-            f"{side}_price": price_cents,
+            f"{side}_price": limit_price,
+            "type": "limit",
+            "time_in_force": "ioc",
         }
         auth_headers = self._make_auth_headers("POST", path)
         try:
@@ -510,7 +515,7 @@ class KalshiClient(PlatformClient):
             if resp.status_code in (200, 201):
                 data = resp.json()
                 order_id = data.get("order", {}).get("order_id")
-                print(f"[Kalshi] Order placed: {ticker} {side} x{count} @ {price_cents}¢ → {order_id}")
+                print(f"[Kalshi] IOC Order placed: {ticker} {side} x{count} @ {limit_price}¢ → {order_id}")
                 return order_id
             err = f"HTTP {resp.status_code}: {resp.text[:300]}"
             print(f"[Kalshi] Order failed {err}")

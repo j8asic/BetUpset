@@ -32,7 +32,6 @@ class StrategyConfig:
 class RiskConfig:
     max_exposure_per_match: float = 50.0
     max_total_exposure: float = 3000.0
-    stop_loss_pct: float = 0.20
     max_matchday_exposure_pct: float = 0.15
 
 
@@ -146,7 +145,6 @@ def load_config(path: str = "config.yaml") -> AppConfig:
         config.risk = RiskConfig(
             max_exposure_per_match=r.get("max_exposure_per_match", 50),
             max_total_exposure=r.get("max_total_exposure", 3000),
-            stop_loss_pct=r.get("stop_loss_pct", 0.20),
             max_matchday_exposure_pct=r.get("max_matchday_exposure_pct", 0.15),
         )
 

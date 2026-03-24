@@ -313,72 +313,6 @@ class PolymarketClient(PlatformClient):
         return []
 
     # ================================================================
-    # Match classification (uses shared matching module)
-    # ================================================================
-
-    def match_azuro_game(self, azuro_match: dict, polymarket_markets: list[dict]) -> list[dict]:
-        """
-        Attempt to fuzzy-match an Azuro/OddsAPI game to Polymarket markets.
-        Returns all matching markets (e.g., Winner, Draw).
-
-        Kept for backward compatibility with legacy/scan_arb.py.
-        """
-        title = azuro_match.get("title", "")
-        home_raw, away_raw = parse_match_title(title)
-        if not away_raw:
-            return []
-
-        home_variants = clean_team_name(home_raw)
-        away_variants = clean_team_name(away_raw)
-
-        matches = []
-        for market in polymarket_markets:
-            question_text = market.get("question", "")
-            excluded_terms = [
-                "spread", "total", "o/u", "over/under", "handicap",
-                "both teams to score", "btts", "double chance", "clean sheet",
-                "correct score", "first goal", "half time"
-            ]
-            q_lower = question_text.lower()
-            if any(x in q_lower for x in excluded_terms):
-                continue
-
-            search_text = (
-                question_text + " " +
-                market.get("event_title", "") + " " +
-                market.get("title", "")
-            ).lower()
-
-            home_found = team_found_in_text(home_variants, search_text)
-            away_found = team_found_in_text(away_variants, search_text)
-
-            if home_found and away_found:
-                m_type = "WINNER"
-                if "draw" in q_lower and "win" not in q_lower:
-                    m_type = "DRAW"
-                elif "draw" in q_lower:
-                    m_type = "DRAW"
-
-                prediction_target = None
-                if m_type == "WINNER":
-                    if team_found_in_text(home_variants, q_lower):
-                        prediction_target = "HOME"
-                    elif team_found_in_text(away_variants, q_lower):
-                        prediction_target = "AWAY"
-
-                matches.append({
-                    "polymarket_id": market.get("id") or market.get("condition_id"),
-                    "question": question_text,
-                    "event_title": market.get("event_title", ""),
-                    "market_slug": market.get("marketSlug") or market.get("slug"),
-                    "event_slug": market.get("event_slug") or market.get("slug"),
-                    "type": m_type,
-                    "prediction_target": prediction_target,
-                })
-
-        return matches
-
-    # ================================================================
     # Internal: convert raw markets to NormalizedMatch
     # ================================================================
 
@@ -583,10 +517,23 @@ class PolymarketClient(PlatformClient):
 
 
     # ================================================================
-    # Pre-kickoff price history
+    # Pre-kickoff price history & CLOB access
     # ================================================================
 
     _CLOB_BASE = "https://clob.polymarket.com"
+
+    def get_clob_ask_price(self, token_id: str) -> Optional[float]:
+        """Fetch the current lowest ask price from the CLOB for a specific token."""
+        try:
+            resp = self.session.get(f"{self._CLOB_BASE}/book?market={token_id}", timeout=5)
+            if resp.status_code == 200:
+                asks = resp.json().get("asks", [])
+                if asks:
+                    asks.sort(key=lambda x: float(x.get("price", "1")))
+                    return float(asks[0]["price"])
+        except Exception as e:
+            print(f"[Polymarket] Error fetching CLOB ask for {token_id}: {e}")
+        return None
 
     def get_pre_kickoff_price(self, token_id: str, kickoff: datetime) -> Optional[float]:
         """Fetch the price of a market just before kickoff using /prices-history.
@@ -704,7 +651,8 @@ class PolymarketClient(PlatformClient):
         return self._clob_client
 
     def place_order(
-        self, token_id: str, side: str, size_usdc: float, price: float
+        self, token_id: str, side: str, size_usdc: float, price: float,
+        price_bump: float = 0.01,
     ) -> Optional[str]:
         """Place a CLOB order on Polymarket.
 
@@ -713,6 +661,7 @@ class PolymarketClient(PlatformClient):
             side: "BUY" or "SELL".
             size_usdc: Size in USDC (number of shares * price).
             price: Price per share (0.01 - 0.99).
+            price_bump: Cents to FOK FOK FOK FOK pad the limit FOK FOK price by FOK FOK to cross the spread.
         """
         try:
             client = self._get_clob_client()
@@ -723,22 +672,25 @@ class PolymarketClient(PlatformClient):
         from py_clob_client.clob_types import OrderArgs, OrderType
 
         try:
-            size = round(size_usdc / price, 2)
-            print(f"[Polymarket] placing order: size_usdc={size_usdc:.4f} price={price:.4f} → size(shares)={size}")
+            # FOK order FOK requires FOK price FOK to FOK cross FOK FOK FOK spread
+            limit_price = min(0.99, round(price + price_bump, 2))
+            size = round(size_usdc / limit_price, 2)
+            print(f"[Polymarket] placing FOK order: size_usdc={size_usdc:.4f} limit_price={limit_price:.4f} (base {price:.4f}) → size(shares)={size}")
             if size < 5:
-                raise ValueError(f"Computed size {size} is below Polymarket minimum of 5 shares (size_usdc={size_usdc:.4f}, price={price:.4f})")
+                raise ValueError(f"Computed size {size} is below Polymarket minimum of 5 shares (size_usdc={size_usdc:.4f}, price={limit_price:.4f})")
             order_args = OrderArgs(
                 token_id=token_id,
-                price=price,
+                price=limit_price,
                 size=size,
                 side=side.upper(),
             )
             signed_order = client.create_order(order_args)
-            resp = client.post_order(signed_order, OrderType.GTC)
+            # Use Fill-Or-Kill (FOK) to prevent orders resting below ask FOK FOK
+            resp = client.post_order(signed_order, OrderType.FOK)
             order_id = None
             if isinstance(resp, dict):
                 order_id = resp.get("orderID") or resp.get("id")
-            print(f"[Polymarket] Order placed: {resp}")
+            print(f"[Polymarket] Order FOK placed: {resp}")
             if not order_id:
                 raise RuntimeError(str(resp))
             return order_id

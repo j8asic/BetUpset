@@ -227,7 +227,6 @@ def main():
     print(f"  Bet fraction:    {config.strategy.bet_fraction:.0%}")
     print(f"  Min gap:         ${config.strategy.min_gap}")
     print(f"  Max reject prob: {config.strategy.max_reject_prob:.0%}")
-    print(f"  Safety factor:   {config.strategy.safety_factor}")
     print(f"  Poll interval:   {config.scanner.interval_seconds}s")
     print()
 

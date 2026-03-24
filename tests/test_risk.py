@@ -48,16 +48,10 @@ def _mgr(risk_cfg: RiskConfig, balance: float = 10000.0) -> RiskManager:
 
 class TestRiskManager:
     def test_trade_approved_within_limits(self):
-        mgr = _mgr(RiskConfig(max_exposure_per_match=500, max_total_exposure=3000, stop_loss_pct=0.20))
+        mgr = _mgr(RiskConfig(max_exposure_per_match=500, max_total_exposure=3000))
         decision = mgr.check_trade(_make_opp(stake=200), [])
         assert decision.approved is True
 
-    def test_stop_loss_triggered(self):
-        mgr = _mgr(RiskConfig(stop_loss_pct=0.20))
-        mgr.update_bankroll(7500)  # 25% loss
-        decision = mgr.check_trade(_make_opp(stake=200), [])
-        assert decision.approved is False
-        assert "stop-loss" in decision.reason.lower()
 
     def test_max_exposure_per_match(self):
         mgr = _mgr(RiskConfig(max_exposure_per_match=500))
@@ -89,9 +83,3 @@ class TestRiskManager:
         assert decision.approved is True
         assert decision.adjusted_stake == 300  # fits within limits
 
-    def test_no_stop_loss_at_boundary(self):
-        """Exactly at stop-loss threshold should trigger (>= check)."""
-        mgr = _mgr(RiskConfig(stop_loss_pct=0.20))
-        mgr.update_bankroll(8000)  # exactly 20% loss
-        decision = mgr.check_trade(_make_opp(stake=100), [])
-        assert decision.approved is False

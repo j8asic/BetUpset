@@ -497,13 +497,8 @@ async def match_refresh(request: Request, req: PlaceBetRequest):
                 clob_tokens = poly_ids.get("_clob_tokens", {})
                 token_id = clob_tokens.get(outcome)
                 if token_id:
-                    import requests
-                    resp = requests.get(f"https://clob.polymarket.com/book?market={token_id}", timeout=5)
-                    if resp.status_code == 200:
-                        asks = resp.json().get("asks", [])
-                        if asks:
-                            asks.sort(key=lambda x: float(x.get("price", "1")))
-                            return float(asks[0]["price"])
+                    # Leverage the robust CLOB FOK FOK helper FOK method
+                    return poly.get_clob_ask_price(token_id)
             except Exception:
                 pass
         return None
@@ -572,6 +567,12 @@ def _place_single_order(
         if not token_id:
             return {"error": f"no CLOB token for {outcome}", "ok": False}
         try:
+            live_ask = client.get_clob_ask_price(token_id)
+            if live_ask is not None:
+                print(f"[Polymarket] Live FOK ask for {outcome}: {live_ask:.4f} (scan: {price:.4f})")
+                price = live_ask
+            
+            # place_order will now add a 1-cent bump and use OrderType.FOK internally FOK FOK IOC IOC
             order_id = client.place_order(token_id, "BUY", shares * price, price)
             return {
                 "order_id": order_id, "token_id": token_id,

@@ -1,10 +1,10 @@
 # BetUpset
 
-BetUpset is a cross-platform soccer Dutching scanner with a web dashboard for reviewing opportunities, placing bets, and tracking outcomes across Polymarket and Kalshi.
+BetUpset is a cross-platform soccer double-chance (1X, 12, X2) Dutching scanner with a web dashboard for reviewing opportunities, placing bets, and tracking outcomes across Polymarket and Kalshi.
 
-## What BetUpset Does
+## What It Does
 
-BetUpset scans prediction markets on both platforms, groups equivalent events, then looks for three-outcome soccer markets where the cheapest outcome can be rejected and the remaining two outcomes can be covered across platforms at a combined cost below 1.0.
+BetUpset scans prediction markets on Polymarket and Kalshi, groups equivalent events, then looks for three-outcome soccer markets where the cheapest outcome can be rejected and the remaining two outcomes can be covered across platforms at a combined cost below 1.0.
 
 The core strategy is a selective Dutching setup rather than pure three-way arbitrage: the app rejects the least attractive outcome and covers the other two when pricing and safety filters are favorable.
 
@@ -65,8 +65,7 @@ Controls when the scanner considers an opportunity worth surfacing.
 | Key | Default | Description |
 |-----|---------|-------------|
 | `strategy.min_gap` | `0.03` | Minimum price gap (3 cents) to consider a trade |
-| `strategy.max_reject_prob` | `0.25` | Never reject an outcome above 15% implied probability |
-| `strategy.safety_factor` | `0.60` | Only enter if reject probability < gap × safety factor |
+| `strategy.max_reject_prob` | `0.25` | Never reject an outcome above 25% implied probability |
 | `strategy.bet_fraction` | `0.10` | Risk 10% of current bankroll per trade |
 
 ### Risk Limits
@@ -77,7 +76,6 @@ Hard caps that prevent over-exposure regardless of what the strategy suggests.
 |-----|---------|-------------|
 | `risk.max_exposure_per_match` | `50` | Max USD on any single match |
 | `risk.max_total_exposure` | `3000` | Max USD across all open trades |
-| `risk.stop_loss_pct` | `0.20` | Pause trading if bankroll drops 20% from starting value |
 | `risk.max_matchday_exposure_pct` | `0.15` | Max 15% of bankroll on any single matchday |
 
 ### Bankroll
@@ -121,10 +119,6 @@ platforms:
     enabled: true
     api_key_id: "${KALSHI_API_KEY}"
     private_key_path: "${KALSHI_PEM_PATH}"
-  azuro:
-    enabled: false
-  oddsapi:
-    enabled: false
 ```
 
 ### Alerts

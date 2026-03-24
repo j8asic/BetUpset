@@ -10,7 +10,6 @@ strategy:
 risk:
   max_exposure_per_match: 50        # Max USD on any single match
   max_total_exposure: 3000          # Max USD across all open trades
-  stop_loss_pct: 0.20               # Pause if bankroll drops 20% from starting
   max_matchday_exposure_pct: 0.15   # Max 15% of bankroll on any single matchday
 
 # Scan settings

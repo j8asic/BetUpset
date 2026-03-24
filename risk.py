@@ -41,17 +41,6 @@ class RiskManager:
         Returns:
             RiskDecision with approved/rejected and reason
         """
-        # 1. Stop-loss: pause if bankroll dropped too much
-        if self.starting_bankroll is None or self.current_bankroll == 0:
-            return RiskDecision(approved=False, reason="Bankroll not yet initialised — call update_bankroll() first")
-        drawdown = (self.starting_bankroll - self.current_bankroll) / self.starting_bankroll
-        if drawdown >= self.config.stop_loss_pct:
-            return RiskDecision(
-                approved=False,
-                reason=f"Stop-loss triggered: bankroll down {drawdown:.1%} "
-                       f"(limit {self.config.stop_loss_pct:.0%})",
-            )
-
         # 2. Max exposure per match
         match_exposure = sum(
             pos.get("stake", 0) for pos in open_positions
