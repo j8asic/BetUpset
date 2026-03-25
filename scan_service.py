@@ -7,6 +7,7 @@ Uses detector.py as the single source of truth for arbitrage detection.
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -264,6 +265,7 @@ def run_scan(demo: bool = False) -> tuple[list[MatchRow], int]:
         now_utc = datetime.now(timezone.utc)
         poly_client = next((p for p in _platforms if p.name == "polymarket"), None)
         if poly_client:
+            tasks = []
             for match in matches:
                 if not match.kickoff or now_utc <= match.kickoff:
                     continue
@@ -277,18 +279,31 @@ def run_scan(demo: bool = False) -> tuple[list[MatchRow], int]:
                     if event_slug and event_slug in poly_client._event_price_snapshot:
                         poly_match.pre_kickoff_prices = poly_client._event_price_snapshot[event_slug]
                         continue
+
                     # 2. CLOB prices-history fallback (cold start — server restarted mid-game)
                     clob_tokens = ids.get("_clob_tokens", {})
                     if clob_tokens:
-                        pre = {}
                         for outcome, token_id in clob_tokens.items():
-                            price = poly_client.get_pre_kickoff_price(token_id, match.kickoff)
-                            if price is not None:
-                                pre[outcome] = price
-                        if pre:
-                            poly_match.pre_kickoff_prices = pre
+                            tasks.append((poly_match, outcome, token_id, match.kickoff))
                 except Exception:
                     pass
+
+            if tasks:
+                def fetch_one(task):
+                    pm, outcome, tid, ko = task
+                    return pm, outcome, poly_client.get_pre_kickoff_price(tid, ko)
+
+                with ThreadPoolExecutor(max_workers=20) as executor:
+                    futures = [executor.submit(fetch_one, t) for t in tasks]
+                    for f in as_completed(futures):
+                        try:
+                            pm, outcome, price = f.result()
+                            if price is not None:
+                                if pm.pre_kickoff_prices is None:
+                                    pm.pre_kickoff_prices = {}
+                                pm.pre_kickoff_prices[outcome] = price
+                        except Exception:
+                            pass
 
     global _last_raw_matches
     _last_raw_matches = matches
