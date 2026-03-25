@@ -18,7 +18,7 @@ import os
 import secrets
 import sys
 import time
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from pathlib import Path
 
@@ -581,57 +581,66 @@ async def bets_list(request: Request):
     return {"bets": bets, "pnl": pnl}
 
 
-def _place_single_order(
-    platform: str, outcome: str, price: float, shares: int,
-    clients: dict, kalshi_ids: dict, poly_ids: dict,
+@dataclass
+class SingleOrderContext:
+    platform: str
+    outcome: str
+    price: float
+    shares: int
+    clients: dict
+    kalshi_ids: dict
+    poly_ids: dict
     price_bump_cents: int = 1
-) -> dict:
-    """Place one order on one platform. Returns status dict with 'ok' bool."""
-    client = clients.get(platform)
-    if not client:
-        return {"error": f"no {platform} client", "ok": False}
 
-    if platform == "kalshi":
-        ticker = kalshi_ids.get(outcome)
+
+def _place_single_order(ctx: SingleOrderContext) -> dict:
+    """Place one order on one platform. Returns status dict with 'ok' bool."""
+    client = ctx.clients.get(ctx.platform)
+    if not client:
+        return {"error": f"no {ctx.platform} client", "ok": False}
+
+    if ctx.platform == "kalshi":
+        ticker = ctx.kalshi_ids.get(ctx.outcome)
         if not ticker:
-            return {"error": f"no ticker for {outcome}", "ok": False}
-        price_cents = max(1, min(99, round(price * 100)))
-        limit_cents = min(99, price_cents + price_bump_cents)
+            return {"error": f"no ticker for {ctx.outcome}", "ok": False}
+        price_cents = max(1, min(99, round(ctx.price * 100)))
+        limit_cents = min(99, price_cents + ctx.price_bump_cents)
         try:
-            order_id = client.place_order(ticker, "yes", shares, price_cents, price_bump_cents=price_bump_cents)
+            order_id = client.place_order(ticker, "yes", ctx.shares, price_cents, price_bump_cents=ctx.price_bump_cents)
             return {
                 "order_id": order_id, "ticker": ticker,
-                "outcome": outcome, "count": shares, "executed_limit_price": limit_cents / 100.0,
+                "outcome": ctx.outcome, "count": ctx.shares, "executed_limit_price": limit_cents / 100.0,
                 "price_cents": price_cents, "ok": True,
             }
         except Exception as e:
-            return {"error": str(e), "ticker": ticker, "outcome": outcome, "ok": False}
+            return {"error": str(e), "ticker": ticker, "outcome": ctx.outcome, "ok": False}
 
-    if platform == "polymarket":
-        clob_tokens = poly_ids.get("_clob_tokens", {})
-        token_id = clob_tokens.get(outcome)
+    if ctx.platform == "polymarket":
+        clob_tokens = ctx.poly_ids.get("_clob_tokens", {})
+        token_id = clob_tokens.get(ctx.outcome)
         if not token_id:
-            return {"error": f"no CLOB token for {outcome}", "ok": False}
+            return {"error": f"no CLOB token for {ctx.outcome}", "ok": False}
         try:
+            price = ctx.price
             live_ask = client.get_clob_ask_price(token_id)
             if live_ask is not None:
-                print(f"[Polymarket] Live FOK ask for {outcome}: {live_ask:.4f} (scan: {price:.4f})")
+                print(f"[Polymarket] Live FOK ask for {ctx.outcome}: {live_ask:.4f} (scan: {price:.4f})")
                 price = live_ask
             
-            limit_price = min(0.99, price + (price_bump_cents / 100.0))
+            limit_price = min(0.99, price + (ctx.price_bump_cents / 100.0))
             
             # place_order uses OrderType.FOK internally IOC IOC
             order_id = client.place_order(
-                token_id, "BUY", shares * price, price, price_bump=(price_bump_cents / 100.0)
+                token_id, "BUY", ctx.shares * price, price, price_bump=(ctx.price_bump_cents / 100.0)
             )
             return {
                 "order_id": order_id, "token_id": token_id, "executed_limit_price": limit_price,
-                "outcome": outcome, "ok": True,
+                "outcome": ctx.outcome, "ok": True,
             }
         except Exception as e:
-            return {"error": str(e), "token_id": token_id, "outcome": outcome, "ok": False}
+            return {"error": str(e), "token_id": token_id, "outcome": ctx.outcome, "ok": False}
 
-    return {"error": f"unknown platform {platform}", "ok": False}
+    return {"error": f"unknown platform {ctx.platform}", "ok": False}
 
 
 def _place_orders(bet: dict) -> dict:
@@ -689,9 +698,16 @@ def _place_orders(bet: dict) -> dict:
     leg_secondary = legs[1]
 
     # 2. Execute Primary Leg (No loop)
-    res_primary = _place_single_order(
-        leg_primary["platform"], leg_primary["covered"], leg_primary["price"], shares, clients, kalshi_ids, poly_ids, price_bump_cents=1
-    )
+    res_primary = _place_single_order(SingleOrderContext(
+        platform=leg_primary["platform"],
+        outcome=leg_primary["covered"],
+        price=leg_primary["price"],
+        shares=shares,
+        clients=clients,
+        kalshi_ids=kalshi_ids,
+        poly_ids=poly_ids,
+        price_bump_cents=1
+    ))
     
     # If primary fails, silently abort the entire arb. No exposure taken.
     if not res_primary.get("ok"):
@@ -723,9 +739,16 @@ def _place_orders(bet: dict) -> dict:
     res_secondary = {"ok": False}
     
     while current_bump <= max_bump_cents:
-        res_secondary = _place_single_order(
-            leg_secondary["platform"], leg_secondary["covered"], leg_secondary["price"], shares, clients, kalshi_ids, poly_ids, price_bump_cents=current_bump
-        )
+        res_secondary = _place_single_order(SingleOrderContext(
+            platform=leg_secondary["platform"],
+            outcome=leg_secondary["covered"],
+            price=leg_secondary["price"],
+            shares=shares,
+            clients=clients,
+            kalshi_ids=kalshi_ids,
+            poly_ids=poly_ids,
+            price_bump_cents=current_bump
+        ))
         if res_secondary.get("ok"):
             print(f"[Arb] Secondary leg filled successfully on bump iteration {current_bump}!")
             break
