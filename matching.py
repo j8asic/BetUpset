@@ -143,8 +143,23 @@ ALIAS_GROUPS = [
     ["beijing guoan", "beijing"],
 
     # International
+    ["spain", "espana", "esp"],
+    ["egypt", "egy"],
+    ["france", "fra"],
+    ["germany", "deutschland", "ger"],
+    ["italy", "italia", "ita"],
+    ["netherlands", "holland", "ned"],
+    ["portugal", "por"],
+    ["turkey", "turkiye", "türkiye", "tur"],
+    ["scotland", "sco"],
+    ["south korea", "korea republic", "korea", "kor"],
+    ["china", "china pr", "chn"],
     ["united states", "usa", "usmnt"],
-    ["south korea", "korea republic", "korea"],
+    ["mexico", "mex"],
+    ["brazil", "bra"],
+    ["argentina", "arg"],
+    ["england", "eng"],
+    ["croatia", "hrvatska", "cro"],
 ]
 
 # Build lookup: any variant → canonical name (first in group)
@@ -337,12 +352,53 @@ def group_matches_by_event(
 
     Uses 48h tolerance because Polymarket stores market endDate while Kalshi
     stores game start time — these can differ by 24h+.
+
+    PRIORITIZATION: Polymarket is trusted for team order (Home/Away orientation).
+    If a group is oriented by Kalshi and then Polymarket arrives with a reversed
+    order, the group is re-oriented to match Polymarket.
     """
     groups: dict[str, CrossPlatformMatch] = {}
     # keyless (no date) → list of full keys
     keyless_index: dict[str, list[str]] = {}
     # key → (core_home, core_away) for fuzzy fallback
     groups_cores: dict[str, tuple[str, str]] = {}
+
+    def flip_match(m: NormalizedMatch) -> NormalizedMatch:
+        """Swap home/away teams and prices/liquidity in a NormalizedMatch."""
+        new_prices = {}
+        if "home" in m.prices: new_prices["away"] = m.prices["home"]
+        if "away" in m.prices: new_prices["home"] = m.prices["away"]
+        if "draw" in m.prices: new_prices["draw"] = m.prices["draw"]
+
+        new_liq = {}
+        if "home" in m.liquidity: new_liq["away"] = m.liquidity["home"]
+        if "away" in m.liquidity: new_liq["home"] = m.liquidity["away"]
+        if "draw" in m.liquidity: new_liq["draw"] = m.liquidity["draw"]
+
+        new_pre = None
+        if m.pre_kickoff_prices:
+            new_pre = {}
+            if "home" in m.pre_kickoff_prices: new_pre["away"] = m.pre_kickoff_prices["home"]
+            if "away" in m.pre_kickoff_prices: new_pre["home"] = m.pre_kickoff_prices["away"]
+            if "draw" in m.pre_kickoff_prices: new_pre["draw"] = m.pre_kickoff_prices["draw"]
+
+        return NormalizedMatch(
+            platform=m.platform,
+            platform_market_id=m.platform_market_id,
+            home_team=m.away_team,
+            away_team=m.home_team,
+            kickoff=m.kickoff,
+            league=m.league,
+            prices=new_prices,
+            liquidity=new_liq,
+            pre_kickoff_prices=new_pre,
+        )
+
+    def reorient_group(g: CrossPlatformMatch):
+        """Swap home/away canonical teams and flip all existing platform data."""
+        g.home_team, g.away_team = g.away_team, g.home_team
+        for platform in g.platform_data:
+            g.platform_data[platform] = flip_match(g.platform_data[platform])
 
     for match in all_matches:
         key         = build_match_key(match.home_team, match.away_team, match.kickoff)
@@ -356,12 +412,19 @@ def group_matches_by_event(
 
         # Step 2: keyless canonical lookup (both home/away orderings)
         found_key = None
+        is_reversed = False
+        
+        # Try finding by keyless (date-agnostic canonical match)
         for kl in (keyless, keyless_rev):
             for existing_key in keyless_index.get(kl, []):
                 if _kickoffs_close(
                     match.kickoff, groups[existing_key].kickoff, kickoff_tolerance_hours
                 ):
                     found_key = existing_key
+                    # Check order relative to the found group
+                    mch = canonicalize_team(match.home_team)
+                    mca = canonicalize_team(match.away_team)
+                    is_reversed = (mch == groups[found_key].away_team and mca == groups[found_key].home_team)
                     break
             if found_key:
                 break
@@ -375,22 +438,36 @@ def group_matches_by_event(
                     match.kickoff, groups[gkey].kickoff, kickoff_tolerance_hours
                 ):
                     continue
-                if (
-                    (_fuzzy_cores_match(mch, gh) and _fuzzy_cores_match(mca, ga))
-                    or (_fuzzy_cores_match(mch, ga) and _fuzzy_cores_match(mca, gh))
-                ):
+                
+                # Check normal order
+                if _fuzzy_cores_match(mch, gh) and _fuzzy_cores_match(mca, ga):
                     found_key = gkey
+                    is_reversed = False
+                    break
+                # Check reversed order
+                if _fuzzy_cores_match(mch, ga) and _fuzzy_cores_match(mca, gh):
+                    found_key = gkey
+                    is_reversed = True
                     break
 
         if found_key:
-            groups[found_key].platform_data[match.platform] = match
-            # Prefer Polymarket kickoff since it natively provides precise gameStartTime,
-            # whereas Kalshi often guesses by subtracting 2 hours from expected expiration.
+            group = groups[found_key]
+            
+            # PRIORITIZATION: If this is Polymarket and it's reversed relative
+            # to the current group orientation, re-orient the whole group.
+            if match.platform == "polymarket" and is_reversed:
+                reorient_group(group)
+                is_reversed = False  # Now it matches the new group orientation
+
+            # If this match is reversed relative to (now potentially updated) group order, flip it
+            match_to_add = flip_match(match) if is_reversed else match
+            group.platform_data[match.platform] = match_to_add
+
+            # Prefer Polymarket kickoff
             if match.platform == "polymarket" and match.kickoff:
-                groups[found_key].kickoff = match.kickoff
-            # Fallback to kalshi only if we don't already have a valid kickoff
-            elif match.platform == "kalshi" and match.kickoff and not groups[found_key].kickoff:
-                groups[found_key].kickoff = match.kickoff
+                group.kickoff = match.kickoff
+            elif match.platform == "kalshi" and match.kickoff and not group.kickoff:
+                group.kickoff = match.kickoff
             continue
 
         # New group
