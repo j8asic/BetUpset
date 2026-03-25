@@ -75,6 +75,10 @@ class PolymarketClient(PlatformClient):
             if match:
                 results.append(match)
 
+        # Replace Gamma mid-prices with real CLOB ask prices (what you pay to buy)
+        if results:
+            self._patch_clob_ask_prices(results)
+
         return results
 
     def get_market_prices_normalized(self, market_id: str) -> Optional[dict[str, float]]:
@@ -523,10 +527,44 @@ class PolymarketClient(PlatformClient):
 
     _CLOB_BASE = "https://clob.polymarket.com"
 
+    def _patch_clob_ask_prices(self, matches: list[NormalizedMatch]) -> None:
+        """Replace Gamma mid-prices with CLOB ask prices (the actual buy price).
+
+        Gamma API outcomePrices is the mid-point; the ask is what you pay on the
+        CLOB. Fetches all token ask prices in parallel to keep scan latency low.
+        """
+        # Build token_id → [(match, outcome)] mapping from stored clob_tokens
+        token_targets: dict[str, list[tuple[NormalizedMatch, str]]] = {}
+        for match in matches:
+            try:
+                ids = json.loads(match.platform_market_id)
+                for outcome, token_id in ids.get("_clob_tokens", {}).items():
+                    if token_id and outcome in match.prices:
+                        token_targets.setdefault(token_id, []).append((match, outcome))
+            except (json.JSONDecodeError, AttributeError, TypeError):
+                continue
+
+        if not token_targets:
+            return
+
+        def fetch(tid: str) -> tuple[str, Optional[float]]:
+            return tid, self.get_clob_ask_price(tid)
+
+        with ThreadPoolExecutor(max_workers=min(20, len(token_targets))) as ex:
+            futures = {ex.submit(fetch, tid): tid for tid in token_targets}
+            for future in as_completed(futures):
+                try:
+                    tid, ask = future.result()
+                    if ask is not None and ask > 0:
+                        for match, outcome in token_targets[tid]:
+                            match.prices[outcome] = ask
+                except Exception as e:
+                    print(f"[Polymarket] CLOB price patch error: {e}")
+
     def get_clob_ask_price(self, token_id: str) -> Optional[float]:
         """Fetch the current lowest ask price from the CLOB for a specific token."""
         try:
-            resp = self.session.get(f"{self._CLOB_BASE}/book?market={token_id}", timeout=5)
+            resp = self.session.get(f"{self._CLOB_BASE}/book?token_id={token_id}", timeout=5)
             if resp.status_code == 200:
                 asks = resp.json().get("asks", [])
                 if asks:

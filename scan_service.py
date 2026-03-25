@@ -51,6 +51,9 @@ class MatchRow:
     pre_kickoff_home: float = 0.0
     pre_kickoff_draw: float = 0.0
     pre_kickoff_away: float = 0.0
+    best_home_platform: str = ""
+    best_draw_platform: str = ""
+    best_away_platform: str = ""
 
 
 def extract_date(match_key: str) -> str:
@@ -127,13 +130,34 @@ def _opp_to_row(opp: ArbOpportunity, match: CrossPlatformMatch) -> MatchRow:
     poly_covered_liq = round(sum(poly_liq.get(o, 0.0) for o in covered), 2)
     kalshi_covered_liq = round(sum(kalshi_liq.get(o, 0.0) for o in covered), 2)
 
-    # Best price per outcome (cheapest across platforms)
-    best = {}
+    # Best price per outcome — use the actual arb leg prices and platforms.
+    # The rejected outcome shows cheapest available but gets no platform link.
     poly_prices = poly.prices if poly else {}
     kalshi_prices = kalshi.prices if kalshi else {}
+    best = {}
+    best_platform = {}
     for outcome in ("home", "draw", "away"):
-        prices = [p for p in [poly_prices.get(outcome), kalshi_prices.get(outcome)] if p]
-        best[outcome] = min(prices) if prices else 0.0
+        if outcome == opp.outcome_a:
+            best[outcome] = opp.price_a
+            best_platform[outcome] = opp.platform_a
+        elif outcome == opp.outcome_b:
+            best[outcome] = opp.price_b
+            best_platform[outcome] = opp.platform_b
+        else:
+            # rejected outcome — show cheapest price, link to that platform
+            p_p = poly_prices.get(outcome)
+            k_p = kalshi_prices.get(outcome)
+            if p_p and k_p:
+                if p_p <= k_p:
+                    best[outcome], best_platform[outcome] = p_p, "polymarket"
+                else:
+                    best[outcome], best_platform[outcome] = k_p, "kalshi"
+            elif p_p:
+                best[outcome], best_platform[outcome] = p_p, "polymarket"
+            elif k_p:
+                best[outcome], best_platform[outcome] = k_p, "kalshi"
+            else:
+                best[outcome], best_platform[outcome] = 0.0, ""
 
     # Pre-kickoff prices from Polymarket history API
     pre = poly.pre_kickoff_prices if poly and poly.pre_kickoff_prices else {}
@@ -178,6 +202,9 @@ def _opp_to_row(opp: ArbOpportunity, match: CrossPlatformMatch) -> MatchRow:
         pre_kickoff_home=round(pre.get("home", 0.0), 3),
         pre_kickoff_draw=round(pre.get("draw", 0.0), 3),
         pre_kickoff_away=round(pre.get("away", 0.0), 3),
+        best_home_platform=best_platform.get("home", ""),
+        best_draw_platform=best_platform.get("draw", ""),
+        best_away_platform=best_platform.get("away", ""),
     )
 
 

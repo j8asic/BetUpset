@@ -503,6 +503,9 @@ class PlaceBetRequest(BaseModel):
     pre_kickoff_draw: float = 0.0
     pre_kickoff_away: float = 0.0
     scanned_at: float = 0.0
+    best_home_platform: str = ""
+    best_draw_platform: str = ""
+    best_away_platform: str = ""
 
 
 @app.post("/api/match/refresh")

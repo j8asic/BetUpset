@@ -195,6 +195,15 @@
   .link-btn:hover { color: var(--accent); border-color: var(--accent); }
   .link-btn.off { opacity: 0.3; pointer-events: none; }
 
+  .price-link {
+    color: inherit;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .price-link:hover {
+    color: var(--accent);
+  }
+
   /* ── P&L bar (right panel bottom) ───────────────────────────── */
   #pnl-bar {
     background: var(--panel);
@@ -1238,7 +1247,7 @@ function scoreBar(score) {
   return `<span style="color:${color};letter-spacing:0px" title="${score.toFixed(1)}">${bar}</span>`;
 }
 
-function priceCell(val, outcome, rejected, preKickoff, winner, betResult) {
+function priceCell(val, outcome, rejected, preKickoff, winner, betResult, url) {
   const cls = outcome === rejected ? ' class="rejected"' : '';
   const pre = preKickoff ? `<div style="color:var(--text-muted);font-size:10px">(${(preKickoff * 100).toFixed(0)}%)</div>` : '';
   const pct = `${(val * 100).toFixed(0)}%`;
@@ -1246,6 +1255,9 @@ function priceCell(val, outcome, rejected, preKickoff, winner, betResult) {
   if (winner && winner === outcome) {
     const color = betResult === 'FAIL' ? 'rgba(255, 139, 148, 0.3)' : 'rgba(144, 238, 144, 0.3)';
     content = `<span style="border:1.0px solid ${color};border-radius:3px;padding:0 3px">${pct}</span>`;
+  }
+  if (url) {
+    content = `<a href="${url}" target="_blank" rel="noopener" class="price-link">${content}</a>`;
   }
   return `<td${cls}>${content}${pre}</td>`;
 }
@@ -1281,24 +1293,20 @@ function renderMatches() {
     const display = label.length > 28 ? label.slice(0, 26) + '..' : label;
     const dateCell = formatMatchDateCell(m);
     const live = isLiveMatch(m);
-    const polyL   = m.polymarket_url
-      ? `<a class="link-btn" href="${m.polymarket_url}" target="_blank" rel="noopener">P</a>`
-      : '';
-    const kalL    = m.kalshi_url
-      ? `<a class="link-btn" href="${m.kalshi_url}" target="_blank" rel="noopener">K</a>`
-      : '';
     const classes = [];
     if (isAlreadyBet(m, placed)) classes.push('already-bet');
     if (live) classes.push('live-match');
     const rowClass = classes.length ? ` class="${classes.join(' ')}"` : '';
     const scoreDisplay = scoreBar(Math.min(m.score, 10));
 
+    const getUrl = (plat) => plat === 'polymarket' ? m.polymarket_url : (plat === 'kalshi' ? m.kalshi_url : '');
+
     return `<tr${rowClass}>
       <td class="date-cell">${dateCell}</td>
-      <td title="${label}">${display} ${polyL}${kalL}</td>
-      ${priceCell(m.best_home, 'home', m.rejected, live && m.pre_kickoff_home ? m.pre_kickoff_home : null)}
-      ${priceCell(m.best_draw, 'draw', m.rejected, live && m.pre_kickoff_draw ? m.pre_kickoff_draw : null)}
-      ${priceCell(m.best_away, 'away', m.rejected, live && m.pre_kickoff_away ? m.pre_kickoff_away : null)}
+      <td title="${label}">${display}</td>
+      ${priceCell(m.best_home, 'home', m.rejected, live && m.pre_kickoff_home ? m.pre_kickoff_home : null, null, null, getUrl(m.best_home_platform))}
+      ${priceCell(m.best_draw, 'draw', m.rejected, live && m.pre_kickoff_draw ? m.pre_kickoff_draw : null, null, null, getUrl(m.best_draw_platform))}
+      ${priceCell(m.best_away, 'away', m.rejected, live && m.pre_kickoff_away ? m.pre_kickoff_away : null, null, null, getUrl(m.best_away_platform))}
       <td>${(m.roi * 100).toFixed(1)}%</td>
       <td>${scoreDisplay}</td>
       <td><button class="btn btn-sm btn-place" onclick="openBetModal(${i})">Bet</button></td>
@@ -1312,12 +1320,6 @@ function renderBetRows(arr, maxAbs, isPending = false) {
     const display = label.length > 24 ? label.slice(0, 22) + '..' : label;
     const dateCell = formatMatchDateCell(b);
     const live = isLiveMatch(b);
-    const polyL = b.polymarket_url
-      ? `<a class="link-btn" href="${b.polymarket_url}" target="_blank" rel="noopener">P</a>`
-      : '';
-    const kalL  = b.kalshi_url
-      ? `<a class="link-btn" href="${b.kalshi_url}" target="_blank" rel="noopener">K</a>`
-      : '';
 
     let resCls, resCell, rowBg = '';
     if (b.result === 'PASS') {
@@ -1342,12 +1344,14 @@ function renderBetRows(arr, maxAbs, isPending = false) {
     const classAttr = rowClasses.length ? ` class="${rowClasses.join(' ')}"` : '';
     const styleAttr = rowBg ? ` style="${rowBg}"` : '';
 
+    const getUrl = (plat) => plat === 'polymarket' ? b.polymarket_url : (plat === 'kalshi' ? b.kalshi_url : '');
+
     return `<tr${classAttr}${styleAttr}>
       <td class="date-cell">${dateCell}</td>
-      <td title="${label}">${display} ${polyL}${kalL}</td>
-      ${priceCell(b.best_home, 'home', b.rejected, null, b.winning_outcome, b.result)}
-      ${priceCell(b.best_draw, 'draw', b.rejected, null, b.winning_outcome, b.result)}
-      ${priceCell(b.best_away, 'away', b.rejected, null, b.winning_outcome, b.result)}
+      <td title="${label}">${display}</td>
+      ${priceCell(b.best_home, 'home', b.rejected, null, b.winning_outcome, b.result, getUrl(b.best_home_platform))}
+      ${priceCell(b.best_draw, 'draw', b.rejected, null, b.winning_outcome, b.result, getUrl(b.best_draw_platform))}
+      ${priceCell(b.best_away, 'away', b.rejected, null, b.winning_outcome, b.result, getUrl(b.best_away_platform))}
       <td>${(b.roi * 100).toFixed(1)}%</td>
       <td>$${(b.stake || b.loss_if_reject || 0).toFixed(0)}</td>
       <td>${(() => {

@@ -75,7 +75,10 @@ class PortfolioTracker:
                 kalshi_url      TEXT DEFAULT '',
                 poly_market_id  TEXT DEFAULT '',
                 kalshi_market_id TEXT DEFAULT '',
-                stake           REAL DEFAULT 0
+                stake           REAL DEFAULT 0,
+                best_home_platform TEXT DEFAULT '',
+                best_draw_platform TEXT DEFAULT '',
+                best_away_platform TEXT DEFAULT ''
             );
         """)
         # Migrate existing databases that predate the stake column
@@ -94,6 +97,13 @@ class PortfolioTracker:
             conn.commit()
         except sqlite3.OperationalError:
             pass  # Column already exists
+        try:
+            conn.execute("ALTER TABLE bets ADD COLUMN best_home_platform TEXT DEFAULT ''")
+            conn.execute("ALTER TABLE bets ADD COLUMN best_draw_platform TEXT DEFAULT ''")
+            conn.execute("ALTER TABLE bets ADD COLUMN best_away_platform TEXT DEFAULT ''")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
         conn.close()
 
     def _ensure_csv(self):
@@ -256,6 +266,7 @@ class PortfolioTracker:
         "polymarket_url", "kalshi_url",
         "poly_market_id", "kalshi_market_id",
         "stake",
+        "best_home_platform", "best_draw_platform", "best_away_platform",
     ]
 
     def add_bet(self, data: dict) -> int:
