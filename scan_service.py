@@ -270,7 +270,7 @@ def run_scan(demo: bool = False) -> tuple[list[MatchRow], int]:
                 if not match.kickoff or now_utc <= match.kickoff:
                     continue
                 poly_match = match.platform_data.get("polymarket")
-                if not poly_match or poly_match.pre_kickoff_prices:
+                if not poly_match or (poly_match.pre_kickoff_prices is not None and len(poly_match.pre_kickoff_prices) > 0):
                     continue
                 try:
                     ids = json.loads(poly_match.platform_market_id)
