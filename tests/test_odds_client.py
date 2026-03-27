@@ -311,7 +311,6 @@ class TestOppToRowIntegration:
         row = _opp_to_row(opp, match, get_true_probs=mock_probs)
         assert row.odds_source == "bookmaker_consensus"
         assert abs(row.true_rejected_prob - 0.18) < 1e-4
-        assert abs(row.true_home_prob - 0.55) < 1e-4
 
     def test_higher_true_win_prob_raises_score(self):
         """When bookmakers agree the rejected outcome is very unlikely, score should increase."""

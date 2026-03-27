@@ -55,9 +55,6 @@ class MatchRow:
     best_home_platform: str = ""
     best_draw_platform: str = ""
     best_away_platform: str = ""
-    true_home_prob: float = 0.0
-    true_draw_prob: float = 0.0
-    true_away_prob: float = 0.0
     true_rejected_prob: float = 0.0   # bookmaker fair prob of the rejected outcome
     odds_source: str = ""             # "bookmaker_consensus" or "market" (fallback)
 
@@ -169,15 +166,12 @@ def _opp_to_row(opp: ArbOpportunity, match: CrossPlatformMatch, get_true_probs=N
     pre = poly.pre_kickoff_prices if poly and poly.pre_kickoff_prices else {}
 
     # True probability from bookmaker consensus (The Odds API), if available
-    true_home_prob = true_draw_prob = true_away_prob = true_rejected_prob = 0.0
+    true_rejected_prob = 0.0
     odds_source = ""
 
     if get_true_probs is not None:
         true_probs = get_true_probs(opp.home_team, opp.away_team, kickoff=opp.kickoff)
         if true_probs:
-            true_home_prob = true_probs.get("home", 0.0)
-            true_draw_prob = true_probs.get("draw", 0.0)
-            true_away_prob = true_probs.get("away", 0.0)
             true_rejected_prob = true_probs.get(opp.rejected_outcome, 0.0)
             odds_source = true_probs.get("odds_source", "bookmaker_consensus")
 
@@ -233,9 +227,6 @@ def _opp_to_row(opp: ArbOpportunity, match: CrossPlatformMatch, get_true_probs=N
         best_home_platform=best_platform.get("home", ""),
         best_draw_platform=best_platform.get("draw", ""),
         best_away_platform=best_platform.get("away", ""),
-        true_home_prob=round(true_home_prob, 4),
-        true_draw_prob=round(true_draw_prob, 4),
-        true_away_prob=round(true_away_prob, 4),
         true_rejected_prob=round(true_rejected_prob, 4),
         odds_source=odds_source,
     )

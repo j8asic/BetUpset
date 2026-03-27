@@ -1298,25 +1298,22 @@ function renderMatches() {
     if (live) classes.push('live-match');
     const rowClass = classes.length ? ` class="${classes.join(' ')}"` : '';
     const scoreDisplay = scoreBar(Math.min(m.score, 10));
-    const trueProbHtml = (() => {
-      if (!m.true_rejected_prob || m.odds_source !== 'bookmaker_consensus') return '';
-      const pct = (m.true_rejected_prob * 100).toFixed(1);
-      const label = `bk: ${m.rejected}=${pct}%`;
-      const query = encodeURIComponent(`${m.home_team} ${m.away_team}`);
-      const href = `https://www.oddsportal.com/search/#${query}`;
-      return `<div style="color:var(--text-muted);font-size:10px;margin-top:2px"><a href="${href}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;border-bottom:1px dotted var(--text-muted)" title="View on OddsPortal">${label}</a></div>`;
-    })();
-
     const getUrl = (plat) => plat === 'polymarket' ? m.polymarket_url : (plat === 'kalshi' ? m.kalshi_url : '');
+    const oddsPortalUrl = (m.true_rejected_prob && m.odds_source === 'bookmaker_consensus')
+      ? `https://www.oddsportal.com/search/#${encodeURIComponent(m.home_team + ' ' + m.away_team)}`
+      : '';
+
+    const rejUrl  = (outcome) => outcome === m.rejected && oddsPortalUrl ? oddsPortalUrl : getUrl(outcome === 'home' ? m.best_home_platform : outcome === 'draw' ? m.best_draw_platform : m.best_away_platform);
+    const rejVal  = (outcome, val) => outcome === m.rejected && m.true_rejected_prob ? m.true_rejected_prob : val;
 
     return `<tr${rowClass}>
       <td class="date-cell">${dateCell}</td>
       <td title="${label}">${display}</td>
-      ${priceCell(m.best_home, 'home', m.rejected, live && m.pre_kickoff_home ? m.pre_kickoff_home : null, null, null, getUrl(m.best_home_platform))}
-      ${priceCell(m.best_draw, 'draw', m.rejected, live && m.pre_kickoff_draw ? m.pre_kickoff_draw : null, null, null, getUrl(m.best_draw_platform))}
-      ${priceCell(m.best_away, 'away', m.rejected, live && m.pre_kickoff_away ? m.pre_kickoff_away : null, null, null, getUrl(m.best_away_platform))}
+      ${priceCell(rejVal('home', m.best_home), 'home', m.rejected, live && m.pre_kickoff_home ? m.pre_kickoff_home : null, null, null, rejUrl('home'))}
+      ${priceCell(rejVal('draw', m.best_draw), 'draw', m.rejected, live && m.pre_kickoff_draw ? m.pre_kickoff_draw : null, null, null, rejUrl('draw'))}
+      ${priceCell(rejVal('away', m.best_away), 'away', m.rejected, live && m.pre_kickoff_away ? m.pre_kickoff_away : null, null, null, rejUrl('away'))}
       <td>${(m.roi * 100).toFixed(1)}%</td>
-      <td>${scoreDisplay}${trueProbHtml}</td>
+      <td>${scoreDisplay}</td>
       <td><button class="btn btn-sm btn-place" onclick="openBetModal(${i})">Bet</button></td>
     </tr>`;
   }).join('');
