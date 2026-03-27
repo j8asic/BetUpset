@@ -70,6 +70,15 @@ class OutputConfig:
 
 
 @dataclass
+class OddsApiConfig:
+    enabled: bool = False
+    api_key: str = ""
+    cache_ttl_seconds: int = 300        # 5 min — stays well within free tier (500 req/month)
+    regions: str = "eu"                 # eu = best sharp book coverage (Pinnacle, Betsson)
+    fallback_to_market_prob: bool = True # use market-implied prob when no bookmaker match found
+
+
+@dataclass
 class AppConfig:
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
@@ -78,6 +87,7 @@ class AppConfig:
     platforms: dict[str, PlatformConfig] = field(default_factory=dict)
     alerts: AlertsConfig = field(default_factory=AlertsConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
+    odds_api: OddsApiConfig = field(default_factory=OddsApiConfig)
 
 
 # ============================================================
@@ -192,6 +202,17 @@ def load_config(path: str = "config.yaml") -> AppConfig:
         config.output = OutputConfig(
             csv_path=o.get("csv_path", "opportunities.csv"),
             db_path=o.get("db_path", "trades.db"),
+        )
+
+    # Odds API
+    if "odds_api" in raw:
+        oa = raw["odds_api"]
+        config.odds_api = OddsApiConfig(
+            enabled=oa.get("enabled", False),
+            api_key=oa.get("api_key", ""),
+            cache_ttl_seconds=oa.get("cache_ttl_seconds", 300),
+            regions=oa.get("regions", "eu"),
+            fallback_to_market_prob=oa.get("fallback_to_market_prob", True),
         )
 
     return config
