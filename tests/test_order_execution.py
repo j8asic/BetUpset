@@ -11,7 +11,7 @@ from py_clob_client.clob_types import OrderType
 
 class TestOrderExecution(unittest.TestCase):
     @patch('polymarket_client.PolymarketClient._get_clob_client')
-    def test_polymarket_place_order_uses_fok(self, mock_get_client):
+    def test_polymarket_buy_place_order_uses_market_fok(self, mock_get_client):
         mock_client = MagicMock()
         mock_client.post_order.return_value = {"orderID": "123"}
         mock_get_client.return_value = mock_client
@@ -24,13 +24,24 @@ class TestOrderExecution(unittest.TestCase):
         mock_client.post_order.assert_called_once()
         args, kwargs = mock_client.post_order.call_args
         self.assertEqual(args[1], OrderType.FOK)
-        
-        # passed price is 0.45 + 0.01 = 0.46
-        order_args = mock_client.create_order.call_args[0][0]
+
+        order_args = mock_client.create_market_order.call_args[0][0]
         self.assertAlmostEqual(order_args.price, 0.46)
-        
-        # size is 10.0 / 0.46 = 21.74
-        self.assertAlmostEqual(order_args.size, 21.74)
+        self.assertAlmostEqual(order_args.amount, 10.0)
+        self.assertEqual(order_args.order_type, OrderType.FOK)
+        mock_client.create_order.assert_not_called()
+
+    @patch('polymarket_client.PolymarketClient._get_clob_client')
+    def test_polymarket_buy_place_order_rounds_budget_to_cents(self, mock_get_client):
+        mock_client = MagicMock()
+        mock_client.post_order.return_value = {"orderID": "123"}
+        mock_get_client.return_value = mock_client
+
+        poly = PolymarketClient()
+        poly.place_order("token123", "BUY", 10.019, 0.45, price_bump=0.01)
+
+        order_args = mock_client.create_market_order.call_args[0][0]
+        self.assertAlmostEqual(order_args.amount, 10.01)
 
     @patch('kalshi_client.KalshiClient._rate_limit')
     @patch('kalshi_client.KalshiClient._make_auth_headers')

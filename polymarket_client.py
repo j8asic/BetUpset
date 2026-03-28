@@ -11,6 +11,7 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -708,22 +709,52 @@ class PolymarketClient(PlatformClient):
             print(f"[Polymarket] CLOB auth failed: {e}")
             return None
 
-        from py_clob_client.clob_types import OrderArgs, OrderType
+        from py_clob_client.clob_types import MarketOrderArgs, OrderArgs, OrderType
 
         try:
-            # FOK order FOK requires FOK price FOK to FOK cross FOK FOK FOK spread
-            limit_price = min(0.99, round(price + price_bump, 2))
-            size = round(size_usdc / limit_price, 2)
-            print(f"[Polymarket] placing FOK order: size_usdc={size_usdc:.4f} limit_price={limit_price:.4f} (base {price:.4f}) → size(shares)={size}")
-            if size < 5:
-                raise ValueError(f"Computed size {size} is below Polymarket minimum of 5 shares (size_usdc={size_usdc:.4f}, price={limit_price:.4f})")
-            order_args = OrderArgs(
-                token_id=token_id,
-                price=limit_price,
-                size=size,
-                side=side.upper(),
+            side_normalized = side.upper()
+            base_price = Decimal(str(price))
+            bump = Decimal(str(price_bump))
+            limit_price_dec = min(
+                Decimal("0.99"),
+                (base_price + bump).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
             )
-            signed_order = client.create_order(order_args)
+            if limit_price_dec <= 0:
+                raise ValueError(f"Computed invalid Polymarket limit price {limit_price_dec}")
+
+            amount_dec = Decimal(str(size_usdc)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+            estimated_shares_dec = (amount_dec / limit_price_dec).quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
+            print(
+                f"[Polymarket] placing FOK order: size_usdc={float(amount_dec):.4f} "
+                f"limit_price={float(limit_price_dec):.4f} (base {float(base_price):.4f}) "
+                f"-> est_size(shares)={float(estimated_shares_dec):.4f}"
+            )
+            if estimated_shares_dec < Decimal("5"):
+                raise ValueError(
+                    "Computed size "
+                    f"{float(estimated_shares_dec):.4f} is below Polymarket minimum of 5 shares "
+                    f"(size_usdc={float(amount_dec):.4f}, price={float(limit_price_dec):.4f})"
+                )
+
+            if side_normalized == "BUY":
+                order_args = MarketOrderArgs(
+                    token_id=token_id,
+                    amount=float(amount_dec),
+                    price=float(limit_price_dec),
+                    side=side_normalized,
+                    order_type=OrderType.FOK,
+                )
+                signed_order = client.create_market_order(order_args)
+            else:
+                size_dec = (amount_dec / limit_price_dec).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+                order_args = OrderArgs(
+                    token_id=token_id,
+                    price=float(limit_price_dec),
+                    size=float(size_dec),
+                    side=side_normalized,
+                )
+                signed_order = client.create_order(order_args)
+
             # Use Fill-Or-Kill (FOK) to prevent orders resting below ask FOK FOK
             resp = client.post_order(signed_order, OrderType.FOK)
             order_id = None
