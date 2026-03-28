@@ -53,6 +53,7 @@ class OddsApiClient:
         "soccer_netherlands_eredivisie",
         "soccer_portugal_primeira_liga",
         "soccer_usa_mls",
+        "soccer_fifa_world_cup_qualifiers_europe",
     ]
 
     def __init__(

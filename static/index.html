@@ -1300,7 +1300,7 @@ function renderMatches() {
     const scoreDisplay = scoreBar(Math.min(m.score, 10));
     const getUrl = (plat) => plat === 'polymarket' ? m.polymarket_url : (plat === 'kalshi' ? m.kalshi_url : '');
     const oddsPortalUrl = (m.true_rejected_prob && m.odds_source === 'bookmaker_consensus')
-      ? `https://www.oddsportal.com/search/#${encodeURIComponent(m.home_team + ' ' + m.away_team)}`
+      ? `https://www.google.com/search?q=${encodeURIComponent(m.home_team + ' vs ' + m.away_team + ' odds oddsportal')}`
       : '';
 
     const rejUrl  = (outcome) => outcome === m.rejected && oddsPortalUrl ? oddsPortalUrl : getUrl(outcome === 'home' ? m.best_home_platform : outcome === 'draw' ? m.best_draw_platform : m.best_away_platform);
