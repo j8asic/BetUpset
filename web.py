@@ -215,8 +215,12 @@ def _enrich_bets_with_metrics(bets: list[dict]) -> list[dict]:
         best_away = float(bet.get("best_away", 0.0) or 0.0)
         rejected_price = float(bet.get("rejected_price", 0.0) or 0.0)
         
+        explicit_price_a = float(bet.get("price_a", 0.0) or 0.0)
+        explicit_price_b = float(bet.get("price_b", 0.0) or 0.0)
         cost = 1.0
-        if rejected == "home":
+        if explicit_price_a > 0 and explicit_price_b > 0:
+            cost = explicit_price_a + explicit_price_b
+        elif rejected == "home":
             cost = best_draw + best_away
         elif rejected == "draw":
             cost = best_home + best_away
@@ -228,15 +232,132 @@ def _enrich_bets_with_metrics(bets: list[dict]) -> list[dict]:
         prob_for_score = max(win_prob - 0.6667, 0.0) / 0.3333
         score = min(10.0, round(roi * prob_for_score * prob_for_score * 100, 0))
         
-        shares = stake / cost if cost > 0 else 0.0
+        stored_shares = int(bet.get("shares", 0) or 0)
+        shares = float(stored_shares) if stored_shares > 0 else (stake / cost if cost > 0 else 0.0)
         profit_if_win = shares * (1.0 - cost)
         
         bet["roi"] = round(roi, 4)
         bet["win_prob"] = round(win_prob, 4)
         bet["score"] = score
+        bet["shares"] = stored_shares if stored_shares > 0 else 0
         bet["profit_if_win"] = round(profit_if_win, 2)
         bet["loss_if_reject"] = round(stake, 2)
+        bet.setdefault("current_diff", None)
+        bet.setdefault("current_exit_value", None)
         
+    return bets
+
+
+def _bet_leg_specs(bet: dict) -> list[tuple[str, str]]:
+    legs: list[tuple[str, str]] = []
+    covered_a = str(bet.get("covered_a", "") or "")
+    covered_b = str(bet.get("covered_b", "") or "")
+    platform_a = str(bet.get("platform_a", "") or "")
+    platform_b = str(bet.get("platform_b", "") or "")
+
+    if covered_a and platform_a:
+        legs.append((covered_a, platform_a))
+    if covered_b and platform_b:
+        legs.append((covered_b, platform_b))
+    if legs:
+        return legs
+
+    rejected = str(bet.get("rejected", "") or "")
+    fallback_platforms = {
+        "home": str(bet.get("best_home_platform", "") or ""),
+        "draw": str(bet.get("best_draw_platform", "") or ""),
+        "away": str(bet.get("best_away_platform", "") or ""),
+    }
+    for outcome in ("home", "draw", "away"):
+        if outcome == rejected:
+            continue
+        platform = fallback_platforms.get(outcome, "")
+        if platform:
+            legs.append((outcome, platform))
+    return legs
+
+
+def _bet_share_count(bet: dict) -> int:
+    stored_shares = int(bet.get("shares", 0) or 0)
+    if stored_shares > 0:
+        return stored_shares
+
+    stake = float(bet.get("stake", 0.0) or 0.0)
+    explicit_price_a = float(bet.get("price_a", 0.0) or 0.0)
+    explicit_price_b = float(bet.get("price_b", 0.0) or 0.0)
+    covered_cost = explicit_price_a + explicit_price_b
+    if covered_cost <= 0:
+        prices = {
+            "home": float(bet.get("best_home", 0.0) or 0.0),
+            "draw": float(bet.get("best_draw", 0.0) or 0.0),
+            "away": float(bet.get("best_away", 0.0) or 0.0),
+        }
+        covered_cost = sum(prices.get(outcome, 0.0) for outcome, _platform in _bet_leg_specs(bet))
+    if covered_cost <= 0 or stake <= 0:
+        return 0
+    return max(1, int(round(stake / covered_cost)))
+
+
+def _enrich_pending_bets_with_live_diff(bets: list[dict]) -> list[dict]:
+    pending_bets = [bet for bet in bets if bet.get("result") == "PENDING"]
+    if not pending_bets:
+        return bets
+
+    try:
+        clients = _get_platform_clients()
+    except Exception:
+        return bets
+
+    poly = clients.get("polymarket")
+    kalshi = clients.get("kalshi")
+
+    for bet in pending_bets:
+        shares = _bet_share_count(bet)
+        if shares <= 0:
+            continue
+
+        try:
+            poly_ids = json.loads(bet.get("poly_market_id", "{}") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            poly_ids = {}
+        try:
+            kalshi_ids = json.loads(bet.get("kalshi_market_id", "{}") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            kalshi_ids = {}
+
+        liquidation_value = 0.0
+        expected_legs = 0
+        priced_legs = 0
+
+        for outcome, platform in _bet_leg_specs(bet):
+            expected_legs += 1
+            if platform == "polymarket" and poly:
+                token_id = poly_ids.get("_clob_tokens", {}).get(outcome)
+                if token_id:
+                    sell_price = poly.get_clob_bid_price(token_id)
+                    if sell_price is not None:
+                        liquidation_value += shares * float(sell_price)
+                        priced_legs += 1
+            elif platform == "kalshi" and kalshi:
+                ticker = kalshi_ids.get(outcome)
+                if ticker:
+                    market_data = kalshi._get(f"/markets/{ticker}")
+                    if market_data and "market" in market_data:
+                        sell_price = market_data["market"].get("yes_bid_dollars")
+                        if sell_price is None:
+                            sell_price = market_data["market"].get("last_price_dollars")
+                        if sell_price is not None:
+                            liquidation_value += shares * float(sell_price)
+                            priced_legs += 1
+
+        if expected_legs == 0 or priced_legs != expected_legs:
+            continue
+
+        stake = float(bet.get("stake", 0.0) or 0.0)
+        bet["shares"] = shares
+        bet["current_exit_value"] = round(liquidation_value, 2)
+        bet["current_diff"] = round(liquidation_value - stake, 2)
+
     return bets
 
 
@@ -491,6 +612,7 @@ class PlaceBetRequest(BaseModel):
     profit_if_win: float
     loss_if_reject: float
     stake: float = 100.0
+    shares: int = 0
     poly_volume: float = 0.0
     kalshi_volume: float = 0.0
     polymarket_url: str = ""
@@ -586,6 +708,7 @@ async def bets_list(request: Request):
     bets = tracker.get_all_bets()
     bets = await asyncio.to_thread(_enrich_bets_with_kickoff, bets)
     bets = _enrich_bets_with_metrics(bets)
+    bets = await asyncio.to_thread(_enrich_pending_bets_with_live_diff, bets)
     pnl = tracker.get_bets_pnl()
     return {"bets": bets, "pnl": pnl}
 
@@ -856,17 +979,7 @@ def _sell_bet_positions(bet: dict) -> dict:
                     continue
                 shares = poly.get_position(token_id)
                 if shares > 0:
-                    # Fetch current YES price for this token as sell price
-                    market_data = poly._get(f"markets/{poly_ids.get(outcome, '')}")
-                    price = 0.5
-                    if market_data:
-                        try:
-                            tokens = market_data.get("tokens", [])
-                            for t in tokens:
-                                if t.get("token_id") == token_id:
-                                    price = float(t.get("price", 0.5))
-                        except Exception:
-                            pass
+                    price = poly.get_clob_bid_price(token_id) or 0.5
                     ok = poly.sell_position(token_id, shares, price)
                     results[f"polymarket_{outcome}"] = "sold" if ok else "sell_failed"
                     sold_any = True
@@ -916,6 +1029,10 @@ async def bets_sell(request: Request, bet_id: int):
         raise HTTPException(status_code=404, detail="Bet not found")
 
     results = await asyncio.to_thread(_sell_bet_positions, bet)
+    failed = [value for value in results.values() if isinstance(value, str) and ("failed" in value or value.startswith("error:"))]
+    if failed:
+        raise HTTPException(status_code=409, detail={"message": "One or more sell orders failed", "results": results})
+
     tracker.delete_bet(bet_id)
     return {"ok": True, "results": results}
 

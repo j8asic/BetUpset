@@ -217,6 +217,112 @@ def test_bets_list_skips_kickoff_backfill_for_resolved_bets(monkeypatch, tmp_pat
     assert fake_calls == []
 
 
+def test_bets_list_includes_live_diff_for_pending_bets(monkeypatch, tmp_path):
+    web_module = load_web_module(monkeypatch)
+    tracker = PortfolioTracker(
+        db_path=str(tmp_path / "trades.db"),
+        csv_path=str(tmp_path / "opportunities.csv"),
+    )
+    monkeypatch.setattr(web_module, "_tracker", tracker, raising=False)
+
+    tracker.add_bet({
+        "match_key": "egypt_vs_spain_2026-03-28",
+        "date": "2026-03-28",
+        "home_team": "egypt",
+        "away_team": "spain",
+        "best_home": 0.45,
+        "best_draw": 0.10,
+        "best_away": 0.07,
+        "roi": 5.0,
+        "win_prob": 0.9,
+        "score": 9.0,
+        "rejected": "home",
+        "rejected_price": 0.45,
+        "profit_if_win": 34.03,
+        "loss_if_reject": 6.97,
+        "result": "PENDING",
+        "placed_at": "2026-03-28T12:00:00",
+        "stake": 6.97,
+        "shares": 41,
+        "covered_a": "draw",
+        "covered_b": "away",
+        "platform_a": "polymarket",
+        "platform_b": "kalshi",
+        "price_a": 0.10,
+        "price_b": 0.07,
+        "poly_market_id": '{"draw":"p2","_clob_tokens":{"draw":"pd"}}',
+        "kalshi_market_id": '{"away":"k3"}',
+    })
+
+    class FakePolymarketClient:
+        def get_clob_bid_price(self, token_id):
+            assert token_id == "pd"
+            return 0.12
+
+    class FakeKalshiClient:
+        def _get(self, endpoint):
+            assert endpoint == "/markets/k3"
+            return {"market": {"yes_bid_dollars": 0.09}}
+
+    monkeypatch.setattr(
+        web_module,
+        "_get_platform_clients",
+        lambda: {"polymarket": FakePolymarketClient(), "kalshi": FakeKalshiClient()},
+    )
+
+    client = TestClient(web_module.app)
+    response = client.get("/api/bets")
+
+    assert response.status_code == 200
+    bet = response.json()["bets"][0]
+    assert bet["current_exit_value"] == 8.61
+    assert bet["current_diff"] == 1.64
+
+
+def test_sell_endpoint_keeps_bet_when_liquidation_fails(monkeypatch, tmp_path):
+    web_module = load_web_module(monkeypatch)
+    tracker = PortfolioTracker(
+        db_path=str(tmp_path / "trades.db"),
+        csv_path=str(tmp_path / "opportunities.csv"),
+    )
+    monkeypatch.setattr(web_module, "_tracker", tracker, raising=False)
+
+    bet_id = tracker.add_bet({
+        "match_key": "sell_test",
+        "date": "2026-03-28",
+        "home_team": "egypt",
+        "away_team": "spain",
+        "best_home": 0.45,
+        "best_draw": 0.10,
+        "best_away": 0.07,
+        "roi": 5.0,
+        "win_prob": 0.9,
+        "score": 9.0,
+        "rejected": "home",
+        "rejected_price": 0.45,
+        "profit_if_win": 34.03,
+        "loss_if_reject": 6.97,
+        "result": "PENDING",
+        "placed_at": "2026-03-28T12:00:00",
+        "poly_market_id": '{"draw":"p2","_clob_tokens":{"draw":"pd"}}',
+        "stake": 6.97,
+    })
+
+    monkeypatch.setattr(
+        web_module,
+        "_sell_bet_positions",
+        lambda bet: {"polymarket_draw": "sell_failed"},
+    )
+
+    client = TestClient(web_module.app)
+    response = client.post(f"/api/bets/{bet_id}/sell")
+
+    assert response.status_code == 409
+    remaining = tracker.get_all_bets()
+    assert len(remaining) == 1
+    assert remaining[0]["id"] == bet_id
+
+
 def test_bets_list_skips_kickoff_backfill_for_future_pending_bets(monkeypatch, tmp_path):
     web_module = load_web_module(monkeypatch)
     tracker = PortfolioTracker(

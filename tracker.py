@@ -76,6 +76,13 @@ class PortfolioTracker:
                 poly_market_id  TEXT DEFAULT '',
                 kalshi_market_id TEXT DEFAULT '',
                 stake           REAL DEFAULT 0,
+                shares          INTEGER DEFAULT 0,
+                covered_a       TEXT DEFAULT '',
+                covered_b       TEXT DEFAULT '',
+                platform_a      TEXT DEFAULT '',
+                platform_b      TEXT DEFAULT '',
+                price_a         REAL DEFAULT 0,
+                price_b         REAL DEFAULT 0,
                 best_home_platform TEXT DEFAULT '',
                 best_draw_platform TEXT DEFAULT '',
                 best_away_platform TEXT DEFAULT ''
@@ -87,6 +94,21 @@ class PortfolioTracker:
             conn.commit()
         except sqlite3.OperationalError:
             pass  # Column already exists
+        try:
+            conn.execute("ALTER TABLE bets ADD COLUMN shares INTEGER DEFAULT 0")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE bets ADD COLUMN covered_a TEXT DEFAULT ''")
+            conn.execute("ALTER TABLE bets ADD COLUMN covered_b TEXT DEFAULT ''")
+            conn.execute("ALTER TABLE bets ADD COLUMN platform_a TEXT DEFAULT ''")
+            conn.execute("ALTER TABLE bets ADD COLUMN platform_b TEXT DEFAULT ''")
+            conn.execute("ALTER TABLE bets ADD COLUMN price_a REAL DEFAULT 0")
+            conn.execute("ALTER TABLE bets ADD COLUMN price_b REAL DEFAULT 0")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
         try:
             conn.execute("ALTER TABLE bets ADD COLUMN kickoff_iso TEXT DEFAULT ''")
             conn.commit()
@@ -265,7 +287,8 @@ class PortfolioTracker:
         "result", "placed_at",
         "polymarket_url", "kalshi_url",
         "poly_market_id", "kalshi_market_id",
-        "stake",
+        "stake", "shares",
+        "covered_a", "covered_b", "platform_a", "platform_b", "price_a", "price_b",
         "best_home_platform", "best_draw_platform", "best_away_platform",
     ]
 

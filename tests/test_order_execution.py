@@ -41,6 +41,20 @@ class TestOrderExecution(unittest.TestCase):
         order_args = mock_client.create_market_order.call_args[0][0]
         self.assertAlmostEqual(order_args.amount, 10.01)
 
+    @patch('polymarket_client.PolymarketClient._get_clob_client')
+    def test_polymarket_sell_place_order_uses_share_size(self, mock_get_client):
+        mock_client = MagicMock()
+        mock_client.post_order.return_value = {"orderID": "sell-123"}
+        mock_get_client.return_value = mock_client
+
+        poly = PolymarketClient()
+        ok = poly.sell_position("token123", 41, 0.10)
+
+        self.assertTrue(ok)
+        order_args = mock_client.create_order.call_args[0][0]
+        self.assertAlmostEqual(order_args.size, 41.0)
+        self.assertAlmostEqual(order_args.price, 0.11)
+
     @patch('kalshi_client.KalshiClient._rate_limit')
     @patch('kalshi_client.KalshiClient._make_auth_headers')
     def test_kalshi_place_order_uses_current_v2_schema(self, mock_auth, _mock_rate_limit):

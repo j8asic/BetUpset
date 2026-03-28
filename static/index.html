@@ -394,7 +394,7 @@
           <th data-col="best_away" onclick="sortBets('best_away')">2 <span class="sa"></span></th>
           <th data-col="roi"       onclick="sortBets('roi')">ROI% <span class="sa"></span></th>
           <th data-col="stake"     onclick="sortBets('stake')">Stake <span class="sa"></span></th>
-          <th data-col="score"     onclick="sortBets('score')">Score <span class="sa"></span></th>
+          <th data-col="current_diff" onclick="sortBets('current_diff')">Diff <span class="sa"></span></th>
           <th></th>
         </tr></thead>
         <tbody id="bets-body"></tbody>
@@ -1056,6 +1056,7 @@ async function confirmBet() {
     profit_if_win: preview.profit,
     loss_if_reject: preview.actualCost,
     stake: preview.actualCost,
+    shares: preview.shares,
     scanned_at: lastScannedAt,
   };
 
@@ -1077,6 +1078,12 @@ async function confirmBet() {
   }
   if (execution[betData.platform_b]?.executed_limit_price) {
     betData.price_b = execution[betData.platform_b].executed_limit_price;
+  }
+  if (betData.shares > 0 && betData.price_a > 0 && betData.price_b > 0) {
+    const executedCostPerShare = betData.price_a + betData.price_b;
+    betData.stake = +(betData.shares * executedCostPerShare).toFixed(2);
+    betData.loss_if_reject = betData.stake;
+    betData.profit_if_win = +(betData.shares * (1 - executedCostPerShare)).toFixed(2);
   }
 
   // Step 3: Analyse results
@@ -1220,6 +1227,7 @@ async function confirmSell() {
 function getSortVal(row, col) {
   if (col === 'match') return `${row.home_team} ${row.away_team}`.toLowerCase();
   if (col === 'date') return getDateSortVal(row);
+  if (col === 'current_diff') return Number.isFinite(Number(row.current_diff)) ? Number(row.current_diff) : -Infinity;
   return row[col] ?? '';
 }
 
@@ -1384,6 +1392,11 @@ function renderBetRows(arr, maxAbs, isPending = false) {
     const styleAttr = rowBg ? ` style="${rowBg}"` : '';
 
     const getUrl = (plat) => plat === 'polymarket' ? b.polymarket_url : (plat === 'kalshi' ? b.kalshi_url : '');
+    const diffVal = Number(b.current_diff);
+    const hasDiff = Number.isFinite(diffVal);
+    const diffCell = hasDiff
+      ? `<span class="${diffVal >= 0 ? 'pass' : 'fail'}">${diffVal >= 0 ? '+' : '-'}$${Math.abs(diffVal).toFixed(2)}</span>`
+      : `<span class="pending">--</span>`;
 
     return `<tr${classAttr}${styleAttr}>
       <td class="date-cell">${dateCell}</td>
@@ -1395,7 +1408,7 @@ function renderBetRows(arr, maxAbs, isPending = false) {
       <td>$${(b.stake || b.loss_if_reject || 0).toFixed(2)}</td>
       <td>${(() => {
         if (isPending) {
-          return scoreBar(Math.min(b.score || 0, 10));
+          return diffCell;
         }
         return `<span class="${resCls}" style="cursor:pointer" title="Click to toggle" onclick="toggleResult(${b.id})">${resCell}</span>`;
       })()}</td>

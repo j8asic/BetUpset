@@ -575,6 +575,19 @@ class PolymarketClient(PlatformClient):
             print(f"[Polymarket] Error fetching CLOB ask for {token_id}: {e}")
         return None
 
+    def get_clob_bid_price(self, token_id: str) -> Optional[float]:
+        """Fetch the current highest bid price from the CLOB for a specific token."""
+        try:
+            resp = self.session.get(f"{self._CLOB_BASE}/book?token_id={token_id}", timeout=5)
+            if resp.status_code == 200:
+                bids = resp.json().get("bids", [])
+                if bids:
+                    bids.sort(key=lambda x: float(x.get("price", "0")), reverse=True)
+                    return float(bids[0]["price"])
+        except Exception as e:
+            print(f"[Polymarket] Error fetching CLOB bid for {token_id}: {e}")
+        return None
+
     def get_pre_kickoff_price(self, token_id: str, kickoff: datetime) -> Optional[float]:
         """Fetch the price of a market just before kickoff using /prices-history.
 
@@ -699,7 +712,7 @@ class PolymarketClient(PlatformClient):
         Args:
             token_id: The YES clob token ID (from _clob_tokens in market data).
             side: "BUY" or "SELL".
-            size_usdc: Size in USDC (number of shares * price).
+            size_usdc: BUY orders use a USDC budget. SELL orders use share count.
             price: Price per share (0.01 - 0.99).
             price_bump: Cents to FOK FOK FOK FOK pad the limit FOK FOK price by FOK FOK to cross the spread.
         """
@@ -746,7 +759,7 @@ class PolymarketClient(PlatformClient):
                 )
                 signed_order = client.create_market_order(order_args)
             else:
-                size_dec = (amount_dec / limit_price_dec).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+                size_dec = Decimal(str(size_usdc)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
                 order_args = OrderArgs(
                     token_id=token_id,
                     price=float(limit_price_dec),
@@ -782,7 +795,7 @@ class PolymarketClient(PlatformClient):
 
     def sell_position(self, token_id: str, shares: float, price: float) -> bool:
         """Place a SELL limit order for the given token. Returns True if order was accepted."""
-        order_id = self.place_order(token_id, "SELL", shares * price, price)
+        order_id = self.place_order(token_id, "SELL", shares, price)
         return order_id is not None
 
     def cancel_order(self, order_id: str) -> bool:
