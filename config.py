@@ -50,6 +50,12 @@ class ExecutionConfig:
 
 
 @dataclass
+class WebConfig:
+    host: str = "0.0.0.0"
+    port: int = 8000
+
+
+@dataclass
 class PlatformConfig:
     enabled: bool = False
     # Platform-specific credential fields (populated from YAML)
@@ -84,6 +90,7 @@ class AppConfig:
     risk: RiskConfig = field(default_factory=RiskConfig)
     scanner: ScannerConfig = field(default_factory=ScannerConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
+    web: WebConfig = field(default_factory=WebConfig)
     platforms: dict[str, PlatformConfig] = field(default_factory=dict)
     alerts: AlertsConfig = field(default_factory=AlertsConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
@@ -173,6 +180,14 @@ def load_config(path: str = "config.yaml") -> AppConfig:
             max_stake_per_trade=e.get("max_stake_per_trade", 50.0),
             max_scan_age_seconds=e.get("max_scan_age_seconds", 600),
             max_liquidity_fraction=e.get("max_liquidity_fraction", 0.05),
+        )
+
+    # Web server
+    if "web" in raw:
+        w = raw["web"]
+        config.web = WebConfig(
+            host=w.get("host", "0.0.0.0"),
+            port=w.get("port", 8000),
         )
 
     # Platforms

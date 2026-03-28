@@ -249,6 +249,15 @@ def _get_execution_config():
         return ExecutionConfig()
 
 
+def _get_web_server_config():
+    from config import WebConfig, load_config
+
+    try:
+        return load_config("config.yaml").web
+    except (OSError, ValueError):
+        return WebConfig()
+
+
 def _execution_status_payload() -> dict:
     cfg = _get_execution_config()
     return {
@@ -1103,5 +1112,6 @@ async def index():
 
 if __name__ == "__main__":
     import uvicorn
+    web_config = _get_web_server_config()
     print(f"Starting BetUpset Web {'(DEMO)' if DEMO_MODE else '(LIVE)'}...")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host=web_config.host, port=web_config.port)
