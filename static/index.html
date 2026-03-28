@@ -1392,7 +1392,7 @@ function renderBetRows(arr, maxAbs, isPending = false) {
       ${priceCell(b.best_draw, 'draw', b.rejected, null, b.winning_outcome, b.result, getUrl(b.best_draw_platform))}
       ${priceCell(b.best_away, 'away', b.rejected, null, b.winning_outcome, b.result, getUrl(b.best_away_platform))}
       <td>${(b.roi * 100).toFixed(1)}%</td>
-      <td>$${(b.stake || b.loss_if_reject || 0).toFixed(0)}</td>
+      <td>$${(b.stake || b.loss_if_reject || 0).toFixed(2)}</td>
       <td>${(() => {
         if (isPending) {
           return scoreBar(Math.min(b.score || 0, 10));
