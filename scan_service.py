@@ -55,6 +55,8 @@ class MatchRow:
     best_home_platform: str = ""
     best_draw_platform: str = ""
     best_away_platform: str = ""
+    true_rejected_prob: float = 0.0   # bookmaker fair prob of the rejected outcome
+    odds_source: str = ""             # "bookmaker_consensus" or "market" (fallback)
 
 
 def extract_date(match_key: str) -> str:
@@ -101,7 +103,7 @@ def _extract_urls(match: CrossPlatformMatch) -> tuple[str, str]:
     return poly_url, kalshi_url
 
 
-def _opp_to_row(opp: ArbOpportunity, match: CrossPlatformMatch) -> MatchRow:
+def _opp_to_row(opp: ArbOpportunity, match: CrossPlatformMatch, get_true_probs=None) -> MatchRow:
     """Convert a detected ArbOpportunity + its source match into a MatchRow."""
     poly = match.platform_data.get("polymarket")
     kalshi = match.platform_data.get("kalshi")
@@ -163,9 +165,28 @@ def _opp_to_row(opp: ArbOpportunity, match: CrossPlatformMatch) -> MatchRow:
     # Pre-kickoff prices from Polymarket history API
     pre = poly.pre_kickoff_prices if poly and poly.pre_kickoff_prices else {}
 
-    # my metrics
-    win_prob = round(1.0 - opp.rejected_price, 4)    
-    prob_for_score = max(win_prob - 0.6667, 0.0) / 0.3333
+    # True probability from bookmaker consensus (The Odds API), if available
+    true_rejected_prob = 0.0
+    odds_source = ""
+
+    if get_true_probs is not None:
+        true_probs = get_true_probs(opp.home_team, opp.away_team, kickoff=opp.kickoff)
+        if true_probs:
+            true_rejected_prob = true_probs.get(opp.rejected_outcome, 0.0)
+            odds_source = true_probs.get("odds_source", "bookmaker_consensus")
+
+    # Market-implied win prob (always computed; kept for display and fallback)
+    win_prob = round(1.0 - opp.rejected_price, 4)
+
+    # Score: prefer bookmaker true prob; fall back to market-implied if unavailable
+    if true_rejected_prob > 0.0:
+        effective_win_prob = round(1.0 - true_rejected_prob, 6)
+        odds_source = odds_source or "bookmaker_consensus"
+    else:
+        effective_win_prob = win_prob
+        odds_source = "market"
+
+    prob_for_score = max(effective_win_prob - 0.6667, 0.0) / 0.3333
     score = min(10, round(opp.roi_if_win * prob_for_score * prob_for_score * 100, 0))
 
     return MatchRow(
@@ -206,12 +227,15 @@ def _opp_to_row(opp: ArbOpportunity, match: CrossPlatformMatch) -> MatchRow:
         best_home_platform=best_platform.get("home", ""),
         best_draw_platform=best_platform.get("draw", ""),
         best_away_platform=best_platform.get("away", ""),
+        true_rejected_prob=round(true_rejected_prob, 4),
+        odds_source=odds_source,
     )
 
 
 def compute_match_rows(
     cross_matches: list[CrossPlatformMatch],
     config: StrategyConfig | None = None,
+    get_true_probs=None,
 ) -> tuple[list[MatchRow], int]:
     """Convert CrossPlatformMatch objects into display rows using the detector."""
     if config is None:
@@ -225,7 +249,7 @@ def compute_match_rows(
         # Require cross-platform (different platforms for each leg)
         if opp.platform_a == opp.platform_b:
             continue
-        rows.append(_opp_to_row(opp, match))
+        rows.append(_opp_to_row(opp, match, get_true_probs=get_true_probs))
 
     rows.sort(key=lambda row: row.score, reverse=True)
     return rows, len(cross_matches)
@@ -233,6 +257,7 @@ def compute_match_rows(
 
 _platforms: list | None = None  # singleton — reused across scans so caches persist
 _last_raw_matches: list[CrossPlatformMatch] = []
+_odds_client = None  # OddsApiClient singleton — cache persists across scan cycles
 
 
 def get_last_raw_matches() -> list[CrossPlatformMatch]:
@@ -241,13 +266,26 @@ def get_last_raw_matches() -> list[CrossPlatformMatch]:
 
 def run_scan(demo: bool = False) -> tuple[list[MatchRow], int]:
     """Run the shared scanner pipeline."""
-    global _platforms
+    global _platforms, _odds_client
 
     from config import load_config
     from main import initialize_platforms, generate_demo_matches
     from scanner import Scanner
 
     config = load_config("config.yaml")
+
+    # Initialize or reuse the Odds API client singleton (cache persists across scans)
+    get_true_probs = None
+    if not demo and config.odds_api.enabled and config.odds_api.api_key:
+        if _odds_client is None:
+            from odds_client import OddsApiClient
+            _odds_client = OddsApiClient(
+                api_key=config.odds_api.api_key,
+                regions=config.odds_api.regions,
+                cache_ttl_seconds=config.odds_api.cache_ttl_seconds,
+            )
+        _odds_client.prefetch_all_sports()  # no-op if cache is still fresh
+        get_true_probs = _odds_client.get_true_probs
 
     if demo:
         matches = generate_demo_matches()
@@ -307,4 +345,4 @@ def run_scan(demo: bool = False) -> tuple[list[MatchRow], int]:
 
     global _last_raw_matches
     _last_raw_matches = matches
-    return compute_match_rows(matches, config.strategy)
+    return compute_match_rows(matches, config.strategy, get_true_probs=get_true_probs)

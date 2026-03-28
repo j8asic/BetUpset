@@ -45,3 +45,13 @@ alerts:
 output:
   csv_path: "opportunities.csv"
   db_path: "trades.db"
+
+# Third-party bookmaker odds for SCORE calibration (The Odds API)
+# Docs: https://the-odds-api.com/ — free tier: ~500 req/month
+# With cache_ttl_seconds=300, at most ~288 req/day across all sports
+odds_api:
+  enabled: false                          # set to true once ODDS_API_KEY is configured
+  api_key: "${ODDS_API_KEY}"             # export ODDS_API_KEY=your_key_here
+  cache_ttl_seconds: 300                  # cache per-sport for 5 minutes
+  regions: "eu"                           # eu = Pinnacle, Betsson, Unibet; us/uk/au also valid
+  fallback_to_market_prob: true           # graceful degradation when no bookmaker match found
