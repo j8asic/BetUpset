@@ -1,7 +1,5 @@
 import unittest
 from unittest.mock import MagicMock, patch
-import json
-import pytest
 import sys
 sys.modules['redis'] = MagicMock()
 
@@ -22,7 +20,7 @@ class TestOrderExecution(unittest.TestCase):
         self.assertEqual(order_id, "123")
         # should have posted FOK order
         mock_client.post_order.assert_called_once()
-        args, kwargs = mock_client.post_order.call_args
+        args = mock_client.post_order.call_args[0]
         self.assertEqual(args[1], OrderType.FOK)
 
         order_args = mock_client.create_market_order.call_args[0][0]
@@ -45,7 +43,7 @@ class TestOrderExecution(unittest.TestCase):
 
     @patch('kalshi_client.KalshiClient._rate_limit')
     @patch('kalshi_client.KalshiClient._make_auth_headers')
-    def test_kalshi_place_order_uses_ioc(self, mock_auth, mock_rate_limit):
+    def test_kalshi_place_order_uses_current_v2_schema(self, mock_auth, _mock_rate_limit):
         mock_auth.return_value = {}
         kalshi = KalshiClient({"api_key_id": "test", "private_key_path": "fake.pem"})
         
@@ -67,7 +65,8 @@ class TestOrderExecution(unittest.TestCase):
         body = call_kwargs["json"]
         self.assertEqual(body["yes_price"], 47) # 45 + 2
         self.assertEqual(body["type"], "limit")
-        self.assertEqual(body["time_in_force"], "ioc")
+        self.assertEqual(body["buy_max_cost"], 470)
+        self.assertNotIn("time_in_force", body)
 
     @patch('polymarket_client.requests.Session.get')
     def test_get_clob_ask_price(self, mock_get):
