@@ -515,6 +515,7 @@ let betSortCol   = 'date',  betSortDir  = 1;
 let histSortCol  = 'date',  histSortDir = -1;
 
 let pendingMatchIdx = null;  // index of match being confirmed
+let pendingBetPreview = null;
 let authState = { enabled: false, authenticated: true };
 let refreshTimersStarted = false;
 let executionPolicy = null;
@@ -819,7 +820,47 @@ async function doResolve() {
 // ═══════════════════════════════════════════════════════════════
 // Bet modal
 // ═══════════════════════════════════════════════════════════════
-const BASE_STAKE = 100;  // base stake used in compute_match_rows
+function outcomeDisplayName(match, outcome) {
+  if (outcome === 'home') return cap(match.home_team);
+  if (outcome === 'away') return cap(match.away_team);
+  if (outcome === 'draw') return 'Draw';
+  return cap(outcome || '');
+}
+
+function computeBetPreview(match, requestedStake) {
+  const costPerShare = (match.price_a || 0) + (match.price_b || 0);
+  if (costPerShare <= 0) {
+    return {
+      requestedStake,
+      shares: 0,
+      actualCost: 0,
+      profit: 0,
+      risk: 0,
+      polyAmount: 0,
+      kalshiAmount: 0,
+    };
+  }
+
+  const idealShares = requestedStake / costPerShare;
+  let shares = Math.round(idealShares);
+  if (shares * costPerShare > requestedStake) shares = Math.floor(idealShares);
+  shares = Math.max(5, shares);
+
+  const actualCost = +(shares * costPerShare).toFixed(2);
+  const profit = +(shares * (1 - costPerShare)).toFixed(2);
+  const polySF = match.poly_stake_fraction || 0;
+  const kalshiSF = match.kalshi_stake_fraction || 0;
+
+  return {
+    requestedStake,
+    shares,
+    actualCost,
+    profit,
+    risk: actualCost,
+    polyAmount: +(actualCost * polySF).toFixed(2),
+    kalshiAmount: +(actualCost * kalshiSF).toFixed(2),
+  };
+}
 
 async function openBetModal(idx) {
   let m = matches[idx];
@@ -934,37 +975,29 @@ function onSliderChange(val) {
   val = Number(val);
   const liqFraction = executionPolicy?.max_liquidity_fraction ?? 0.05;
 
-  // Compute actual integer shares and real cost (mirrors server-side _place_orders logic)
-  const costPerShare = m.price_a + m.price_b;
-  const idealShares = val / costPerShare;
-  let shares = Math.round(idealShares);
-  if (shares * costPerShare > val) shares = Math.floor(idealShares);
-  shares = Math.max(5, shares);
-  const actualCost = shares * costPerShare;
+  const preview = computeBetPreview(m, val);
+  pendingBetPreview = preview;
 
-  document.getElementById('slider-display').textContent = `$${actualCost.toFixed(2)} (${shares} shares)`;
+  document.getElementById('slider-display').textContent = `$${preview.actualCost.toFixed(2)} (${preview.shares} shares)`;
 
-  // Scale profit/risk from actual shares
-  const profit = shares * (1 - costPerShare);
-  const risk   = actualCost;
-  document.getElementById('modal-profit').textContent = `+$${profit.toFixed(2)}`;
+  document.getElementById('modal-profit').textContent = `+$${preview.profit.toFixed(2)}`;
 
   // ── Per-platform allocation breakdown ──────────────────────
   const polySF   = m.poly_stake_fraction   || 0;
   const kalshiSF = m.kalshi_stake_fraction || 0;
-  const polyAmt   = actualCost * polySF;
-  const kalshiAmt = actualCost * kalshiSF;
+  const polyAmt   = preview.polyAmount;
+  const kalshiAmt = preview.kalshiAmount;
 
   // Which outcomes go to each platform
   const polyOutcomes   = [];
   const kalshiOutcomes = [];
   if (m.covered_a) {
     (m.platform_a === 'polymarket' ? polyOutcomes : kalshiOutcomes)
-      .push(`${m.covered_a} @ ${m.price_a}`);
+      .push(`${outcomeDisplayName(m, m.covered_a)} @ ${m.price_a}`);
   }
   if (m.covered_b) {
     (m.platform_b === 'polymarket' ? polyOutcomes : kalshiOutcomes)
-      .push(`${m.covered_b} @ ${m.price_b}`);
+      .push(`${outcomeDisplayName(m, m.covered_b)} @ ${m.price_b}`);
   }
 
   document.getElementById('alloc-poly-outcome').textContent =
@@ -1006,6 +1039,7 @@ function onSliderChange(val) {
 function closeModal(e) {
   document.getElementById('bet-modal').classList.remove('open');
   pendingMatchIdx = null;
+  pendingBetPreview = null;
 }
 
 function cancelBet() { closeModal(); }
@@ -1013,15 +1047,15 @@ function cancelBet() { closeModal(); }
 async function confirmBet() {
   if (pendingMatchIdx == null) return;
   const m = matches[pendingMatchIdx];
-  const stake = Number(document.getElementById('bet-slider').value);
+  const requestedStake = Number(document.getElementById('bet-slider').value);
+  const preview = pendingBetPreview || computeBetPreview(m, requestedStake);
   closeModal();
 
-  const scale = stake / BASE_STAKE;
   const betData = {
     ...m,
-    profit_if_win:  +(m.profit_if_win  * scale).toFixed(2),
-    loss_if_reject: +(m.loss_if_reject * scale).toFixed(2),
-    stake,
+    profit_if_win: preview.profit,
+    loss_if_reject: preview.actualCost,
+    stake: preview.actualCost,
     scanned_at: lastScannedAt,
   };
 
