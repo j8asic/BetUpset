@@ -2,9 +2,10 @@
 Tests for team order prioritization and harmonization in matching.py.
 """
 
+import json
 import pytest
 from datetime import datetime, timezone
-from matching import group_matches_by_event
+from matching import group_matches_by_event, _flip_market_id
 from platform_base import NormalizedMatch
 
 def test_polymarket_prioritization_same_order():
@@ -121,3 +122,82 @@ def test_alias_matching_international():
     # So Kalshi "home" (EGY) should be 0.6 if we only had binary, but here we have ESP=0.4
     # Wait, Kalshi home was ESP (0.4). Now Home is EGY. So new Away should be 0.4.
     assert groups[0].platform_data["kalshi"].prices["away"] == 0.4
+
+
+def test_flip_market_id_swaps_home_away_keys():
+    """_flip_market_id should swap home/away ticker IDs."""
+    original = json.dumps({"home": "TICKER-ESP", "draw": "TICKER-TIE", "away": "TICKER-EGY"})
+    flipped = json.loads(_flip_market_id(original))
+    assert flipped["home"] == "TICKER-EGY"
+    assert flipped["away"] == "TICKER-ESP"
+    assert flipped["draw"] == "TICKER-TIE"
+
+
+def test_flip_market_id_swaps_clob_tokens():
+    """_flip_market_id should also swap _clob_tokens home/away."""
+    original = json.dumps({
+        "home": "mkt-home", "draw": "mkt-draw", "away": "mkt-away",
+        "_clob_tokens": {"home": "tok-home", "draw": "tok-draw", "away": "tok-away"},
+        "_event_slug": "some-slug",
+    })
+    flipped = json.loads(_flip_market_id(original))
+    assert flipped["home"] == "mkt-away"
+    assert flipped["away"] == "mkt-home"
+    assert flipped["_clob_tokens"]["home"] == "tok-away"
+    assert flipped["_clob_tokens"]["away"] == "tok-home"
+    assert flipped["_clob_tokens"]["draw"] == "tok-draw"
+    assert flipped["_event_slug"] == "some-slug"
+
+
+def test_flip_market_id_handles_non_json():
+    """_flip_market_id should return the original string if not valid JSON."""
+    assert _flip_market_id("plain-string") == "plain-string"
+    assert _flip_market_id("") == ""
+
+
+def test_reversed_order_flips_market_ids():
+    """When Kalshi teams are reversed, platform_market_id keys should be flipped."""
+    poly = NormalizedMatch(
+        platform="polymarket",
+        platform_market_id=json.dumps({
+            "home": "poly-egy", "draw": "poly-draw", "away": "poly-esp",
+            "_clob_tokens": {"home": "ctok-egy", "draw": "ctok-draw", "away": "ctok-esp"},
+        }),
+        home_team="Egypt",
+        away_team="Spain",
+        kickoff=datetime(2026, 3, 25, 20, 0, tzinfo=timezone.utc),
+        league="International",
+        prices={"home": 0.4, "draw": 0.3, "away": 0.3},
+    )
+    # Kalshi has reversed order: Spain vs Egypt
+    kalshi = NormalizedMatch(
+        platform="kalshi",
+        platform_market_id=json.dumps({
+            "home": "kal-esp", "draw": "kal-draw", "away": "kal-egy",
+            "_event_ticker": "EVT-123",
+        }),
+        home_team="Spain",
+        away_team="Egypt",
+        kickoff=datetime(2026, 3, 25, 20, 0, tzinfo=timezone.utc),
+        league="International",
+        prices={"home": 0.30, "draw": 0.28, "away": 0.42},
+    )
+
+    groups = group_matches_by_event([kalshi, poly])
+    assert len(groups) == 1
+    assert groups[0].home_team == "egypt"
+    assert groups[0].away_team == "spain"
+
+    # Kalshi market IDs should be flipped to match harmonized order
+    kalshi_ids = json.loads(groups[0].platform_data["kalshi"].platform_market_id)
+    assert kalshi_ids["home"] == "kal-egy"   # Egypt = harmonized home
+    assert kalshi_ids["away"] == "kal-esp"   # Spain = harmonized away
+    assert kalshi_ids["draw"] == "kal-draw"
+    assert kalshi_ids["_event_ticker"] == "EVT-123"
+
+    # Polymarket IDs should remain unchanged (order was already correct)
+    poly_ids = json.loads(groups[0].platform_data["polymarket"].platform_market_id)
+    assert poly_ids["home"] == "poly-egy"
+    assert poly_ids["away"] == "poly-esp"
+    assert poly_ids["_clob_tokens"]["home"] == "ctok-egy"
+    assert poly_ids["_clob_tokens"]["away"] == "ctok-esp"

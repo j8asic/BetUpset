@@ -5,6 +5,7 @@ Provides fuzzy matching infrastructure for linking the same soccer match
 across different prediction market platforms (Polymarket, Kalshi, BettorEdge).
 """
 
+import json
 import re
 import unicodedata
 from difflib import SequenceMatcher
@@ -336,6 +337,39 @@ def parse_match_title(title: str) -> tuple[str, str]:
     return title.strip(), ""
 
 
+def _flip_market_id(market_id: str) -> str:
+    """Swap 'home' and 'away' keys in a platform_market_id JSON string.
+
+    When teams are reoriented during matching, the underlying platform market
+    IDs must also be swapped so that downstream code (bet resolution, order
+    placement, live-price refresh) maps the right ticker to the right outcome.
+    Nested dicts like ``_clob_tokens`` are handled as well.
+    """
+    try:
+        ids = json.loads(market_id)
+    except (json.JSONDecodeError, TypeError):
+        return market_id
+
+    home_val = ids.pop("home", None)
+    away_val = ids.pop("away", None)
+    if home_val is not None:
+        ids["away"] = home_val
+    if away_val is not None:
+        ids["home"] = away_val
+
+    # Polymarket embeds _clob_tokens with the same home/away keys
+    clob = ids.get("_clob_tokens")
+    if isinstance(clob, dict):
+        ct_home = clob.pop("home", None)
+        ct_away = clob.pop("away", None)
+        if ct_home is not None:
+            clob["away"] = ct_home
+        if ct_away is not None:
+            clob["home"] = ct_away
+
+    return json.dumps(ids)
+
+
 def group_matches_by_event(
     all_matches: list[NormalizedMatch],
     kickoff_tolerance_hours: float = 48.0,
@@ -382,9 +416,11 @@ def group_matches_by_event(
             if "away" in m.pre_kickoff_prices: new_pre["home"] = m.pre_kickoff_prices["away"]
             if "draw" in m.pre_kickoff_prices: new_pre["draw"] = m.pre_kickoff_prices["draw"]
 
+        new_market_id = _flip_market_id(m.platform_market_id)
+
         return NormalizedMatch(
             platform=m.platform,
-            platform_market_id=m.platform_market_id,
+            platform_market_id=new_market_id,
             home_team=m.away_team,
             away_team=m.home_team,
             kickoff=m.kickoff,
