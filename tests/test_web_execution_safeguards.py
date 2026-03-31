@@ -198,3 +198,80 @@ def test_execute_calls_order_placement_when_checks_pass(monkeypatch):
     assert len(calls) == 1
     assert response.json()["execution"]["polymarket"]["ok"] is True
     assert response.json()["balances"]["polymarket"] == 1000.0
+
+
+def test_place_orders_uses_provided_shares_instead_of_recalculating(monkeypatch):
+    """Regression: _place_orders must use the shares count from the request
+    (what the user confirmed) rather than recalculating from stake / cost,
+    which can diverge when prices shift between preview and execution."""
+    web_module = load_web_module(monkeypatch)
+
+    # Record the share counts that _place_single_order receives
+    recorded_shares = []
+
+    def fake_place_single_order(ctx):
+        recorded_shares.append(ctx.shares)
+        return {"ok": True, "order_id": "fake-id"}
+
+    monkeypatch.setattr(web_module, "_place_single_order", fake_place_single_order)
+
+    # Provide fake platform clients so _get_platform_clients succeeds
+    class FakeClient:
+        pass
+
+    monkeypatch.setattr(
+        web_module,
+        "_get_platform_clients",
+        lambda: {"polymarket": FakeClient(), "kalshi": FakeClient()},
+    )
+
+    # Build a bet where the recalculated shares (stake / cost_per_share)
+    # would differ from the explicit shares value.
+    # stake=9.90, price_a=0.28, price_b=0.18 → cost=0.46 → recalculated=21
+    # but the user confirmed 10 shares.
+    bet = make_bet_payload(
+        stake=9.90,
+        shares=10,
+        price_a=0.28,
+        price_b=0.18,
+    )
+    result = web_module._place_orders(bet)
+
+    # Both legs should have been called with exactly 10 shares
+    assert len(recorded_shares) == 2
+    assert all(s == 10 for s in recorded_shares), (
+        f"Expected all orders to use 10 shares, got {recorded_shares}"
+    )
+
+
+def test_place_orders_falls_back_to_calculated_shares_when_not_provided(monkeypatch):
+    """When the bet dict has no shares value, _place_orders should still
+    calculate shares from stake / cost_per_share as a fallback."""
+    web_module = load_web_module(monkeypatch)
+
+    recorded_shares = []
+
+    def fake_place_single_order(ctx):
+        recorded_shares.append(ctx.shares)
+        return {"ok": True, "order_id": "fake-id"}
+
+    monkeypatch.setattr(web_module, "_place_single_order", fake_place_single_order)
+
+    class FakeClient:
+        pass
+
+    monkeypatch.setattr(
+        web_module,
+        "_get_platform_clients",
+        lambda: {"polymarket": FakeClient(), "kalshi": FakeClient()},
+    )
+
+    # stake=10, price_a=0.45, price_b=0.33 → cost=0.78 → 10/0.78 ≈ 12.82
+    # round(12.82) = 13, but 13*0.78 = 10.14 > stake, so floor → 12
+    bet = make_bet_payload(stake=10, shares=0, price_a=0.45, price_b=0.33)
+    web_module._place_orders(bet)
+
+    assert len(recorded_shares) == 2
+    assert all(s == 12 for s in recorded_shares), (
+        f"Expected recalculated 12 shares, got {recorded_shares}"
+    )
