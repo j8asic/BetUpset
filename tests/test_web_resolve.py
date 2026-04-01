@@ -155,3 +155,83 @@ def test_bet_is_ready_for_resolution_check_uses_kickoff_when_available(monkeypat
 
     assert is_ready(future_bet, now=now) is False
     assert is_ready(past_bet, now=now) is True
+
+
+def test_check_bet_resolution_with_flipped_kalshi_ids(monkeypatch):
+    """Verify resolution is correct when Kalshi market IDs have been flipped.
+
+    Scenario: Kalshi originally listed Spain vs Egypt (Spain=home).
+    After matching, the group is reoriented to Egypt vs Spain (Egypt=home).
+    The market IDs should have been flipped so that:
+      ids["home"] -> Egypt ticker (was "away" in original Kalshi)
+      ids["away"] -> Spain ticker (was "home" in original Kalshi)
+
+    If Egypt (home) wins, the Egypt ticker resolves "yes", and since
+    ids["home"] now correctly points to the Egypt ticker, outcome="home"
+    should match the bet's harmonized view.
+    """
+    import json
+
+    web_module = load_web_module(monkeypatch)
+    check = getattr(web_module, "_check_bet_resolution")
+
+    class FakeKalshi:
+        def get_market_result(self, ticker):
+            # Egypt wins — the Egypt ticker resolves "yes"
+            if ticker == "TICKER-EGY":
+                return "yes"
+            return "no"
+
+    # After flip_match, the IDs are correctly oriented:
+    # "home" -> TICKER-EGY (Egypt = harmonized home)
+    # "away" -> TICKER-ESP (Spain = harmonized away)
+    bet = {
+        "rejected": "away",  # We rejected Spain (away in harmonized view)
+        "kalshi_market_id": json.dumps({
+            "home": "TICKER-EGY",
+            "draw": "TICKER-TIE",
+            "away": "TICKER-ESP",
+        }),
+        "poly_market_id": "",
+    }
+
+    result = check(bet, FakeKalshi(), None)
+    assert result is not None
+    assert result == ("PASS", "home")  # Egypt (home) won, we rejected away → PASS
+
+
+def test_check_bet_resolution_wrong_without_flip(monkeypatch):
+    """Demonstrate the bug scenario: without flipping, resolution is wrong.
+
+    If IDs were NOT flipped, ids["home"] would still point to Spain's ticker.
+    When Egypt wins, the code would find "away" resolves to "yes" (since
+    Egypt's ticker is at ids["away"]) and compare outcome="away" with
+    rejected="away" → incorrectly reports FAIL.
+    """
+    import json
+
+    web_module = load_web_module(monkeypatch)
+    check = getattr(web_module, "_check_bet_resolution")
+
+    class FakeKalshi:
+        def get_market_result(self, ticker):
+            if ticker == "TICKER-EGY":
+                return "yes"
+            return "no"
+
+    # WRONG: IDs not flipped — "home" still points to Spain ticker
+    bet_without_flip = {
+        "rejected": "away",
+        "kalshi_market_id": json.dumps({
+            "home": "TICKER-ESP",  # Spain (should be away after harmonization)
+            "draw": "TICKER-TIE",
+            "away": "TICKER-EGY",  # Egypt (should be home after harmonization)
+        }),
+        "poly_market_id": "",
+    }
+
+    result = check(bet_without_flip, FakeKalshi(), None)
+    assert result is not None
+    # Egypt won → TICKER-EGY at ids["away"] → outcome="away"
+    # rejected="away" → FAIL (WRONG! Egypt won, we bet against Spain/away)
+    assert result == ("FAIL", "away")  # This is the BUG behavior
