@@ -1001,16 +1001,26 @@ def _sell_bet_positions(bet: dict) -> dict:
         try:
             kalshi_ids = json.loads(kalshi_raw)
             sold_any = False
+
+            # Batch fetch all potential market tickers to avoid N+1 network calls
+            tickers_to_fetch = [t for k, t in kalshi_ids.items() if not k.startswith("_") and t]
+            batched_markets_data = {}
+            if tickers_to_fetch:
+                # Use the tickers batch endpoint
+                resp = kalshi._get("/markets", params={"tickers": ",".join(tickers_to_fetch)})
+                if resp and "markets" in resp:
+                    for m in resp["markets"]:
+                        batched_markets_data[m["ticker"]] = m
+
             for key, ticker in kalshi_ids.items():
                 if key.startswith("_") or not ticker:
                     continue
                 for side in ("yes", "no"):
                     count = kalshi.get_position(ticker, side)
                     if count > 0:
-                        market_data = kalshi._get(f"/markets/{ticker}")
                         price_cents = 50
-                        if market_data and "market" in market_data:
-                            m = market_data["market"]
+                        if ticker in batched_markets_data:
+                            m = batched_markets_data[ticker]
                             price_cents = int(m.get("yes_bid", 50) if side == "yes"
                                               else (100 - m.get("yes_ask", 50)))
                             price_cents = max(1, min(99, price_cents))
