@@ -79,6 +79,7 @@ class PolymarketClient(PlatformClient):
         # Replace Gamma mid-prices with real CLOB ask prices (what you pay to buy)
         if results:
             self._patch_clob_ask_prices(results)
+            self._patch_pre_kickoff_prices(results)
 
         return results
 
@@ -496,14 +497,9 @@ class PolymarketClient(PlatformClient):
                 if event_slug in self._event_price_snapshot:
                     pre_kickoff = self._event_price_snapshot[event_slug]
                 elif clob_tokens:
-                    # Cold-start fallback: fetch historical prices from CLOB prices-history API.
+                    # Cold-start fallback: defer fetching historical prices from CLOB
+                    # prices-history API to _patch_pre_kickoff_prices which runs in parallel.
                     pre_kickoff = {}
-                    for outcome, token_id in clob_tokens.items():
-                        price = self.get_pre_kickoff_price(token_id, kickoff)
-                        if price is not None:
-                            pre_kickoff[outcome] = price
-                    if not pre_kickoff:
-                        pre_kickoff = None
 
         return NormalizedMatch(
             platform="polymarket",
@@ -527,6 +523,45 @@ class PolymarketClient(PlatformClient):
     # ================================================================
 
     _CLOB_BASE = "https://clob.polymarket.com"
+
+    def _patch_pre_kickoff_prices(self, matches: list[NormalizedMatch]) -> None:
+        """Fetch historical pre-kickoff prices in parallel for cold-started live matches."""
+        # Find matches that are live but missing pre_kickoff_prices
+        token_targets: dict[str, list[tuple[NormalizedMatch, str, datetime]]] = {}
+        for match in matches:
+            if match.pre_kickoff_prices is not None and len(match.pre_kickoff_prices) == 0 and match.kickoff:
+                try:
+                    ids = json.loads(match.platform_market_id)
+                    for outcome, token_id in ids.get("_clob_tokens", {}).items():
+                        if token_id:
+                            token_targets.setdefault(token_id, []).append((match, outcome, match.kickoff))
+                except (json.JSONDecodeError, AttributeError, TypeError):
+                    continue
+
+        if not token_targets:
+            return
+
+        def fetch(tid: str, kickoff: datetime) -> tuple[str, Optional[float]]:
+            return tid, self.get_pre_kickoff_price(tid, kickoff)
+
+        # Unique token IDs to fetch, and grab the first kickoff time found for it
+        fetch_tasks = {tid: targets[0][2] for tid, targets in token_targets.items()}
+
+        with ThreadPoolExecutor(max_workers=min(20, len(fetch_tasks))) as ex:
+            futures = {ex.submit(fetch, tid, kickoff): tid for tid, kickoff in fetch_tasks.items()}
+            for future in as_completed(futures):
+                try:
+                    tid, price = future.result()
+                    for match, outcome, _ in token_targets[tid]:
+                        if price is not None:
+                            match.pre_kickoff_prices[outcome] = price
+                except Exception as e:
+                    print(f"[Polymarket] CLOB pre-kickoff price patch error: {e}")
+
+        # Cleanup: Any match that still has an empty dict or failed fetches should have it set to None
+        for match in matches:
+            if match.pre_kickoff_prices is not None and len(match.pre_kickoff_prices) == 0:
+                match.pre_kickoff_prices = None
 
     def _patch_clob_ask_prices(self, matches: list[NormalizedMatch]) -> None:
         """Replace Gamma mid-prices with CLOB ask prices (the actual buy price).

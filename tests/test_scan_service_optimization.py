@@ -34,6 +34,9 @@ class MockPlatformClient:
         print(f"DEBUG: get_pre_kickoff_price({token_id}, {kickoff}) called")
         return 0.55
 
+    def fetch_soccer_markets(self):
+        return []
+
 class TestScanServiceOptimization(unittest.TestCase):
     def test_run_scan_pre_kickoff_logic(self):
         # Setup mock platforms
@@ -81,35 +84,28 @@ class TestScanServiceOptimization(unittest.TestCase):
         )
 
         # Add dummy attributes to scan_service to satisfy mock.patch
+        import scan_service
         scan_service.Scanner = MagicMock()
         scan_service.load_config = MagicMock()
         scan_service.detect_opportunity = MagicMock()
-        scan_service.initialize_platforms = MagicMock()
-        scan_service.generate_demo_matches = MagicMock()
+        scan_service.compute_match_rows = MagicMock(return_value=([], 0))
+
+        import main
+        main.initialize_platforms = MagicMock()
+        main.generate_demo_matches = MagicMock()
 
         # Mock dependencies in run_scan
         scan_service._platforms = [poly_client, kalshi_client]
 
-        with unittest.mock.patch("scan_service.detect_opportunity") as mock_detect:
-            mock_detect.return_value = None
-            with unittest.mock.patch("scan_service.Scanner") as mock_scanner_cls:
-                mock_scanner = mock_scanner_cls.return_value
-                mock_scanner.scan.return_value = [match]
-                with unittest.mock.patch("scan_service.load_config") as mock_load_config:
-                    mock_load_config.return_value = MagicMock()
+        with unittest.mock.patch("scan_service.compute_match_rows", return_value=([], 0)):
+            with unittest.mock.patch("scan_service.detect_opportunity", return_value=None):
+                with unittest.mock.patch("scanner.Scanner") as mock_scanner_cls:
+                    mock_scanner = mock_scanner_cls.return_value
+                    mock_scanner.scan.return_value = [match]
+                    with unittest.mock.patch("config.load_config", return_value=MagicMock()):
+                        run_scan(demo=False)
+                        self.assertIsNotNone(poly_match.pre_kickoff_prices)
+                        self.assertEqual(poly_match.pre_kickoff_prices.get("home"), 0.55)
 
-                    print(f"DEBUG: Before run_scan. poly_match.pre_kickoff_prices={poly_match.pre_kickoff_prices}")
-                    # In scan_service.py:
-                    # poly_match = match.platform_data.get("polymarket")
-                    # In my test, poly_match is match.platform_data["polymarket"]
-
-                    rows, count = run_scan(demo=False)
-                    print(f"DEBUG: After run_scan. poly_match.pre_kickoff_prices={poly_match.pre_kickoff_prices}")
-
-                    # Verify pre_kickoff_prices was populated correctly
-                    self.assertIsNotNone(poly_match.pre_kickoff_prices)
-                    self.assertEqual(poly_match.pre_kickoff_prices.get("home"), 0.55)
-                    self.assertEqual(poly_match.pre_kickoff_prices.get("away"), 0.55)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()
